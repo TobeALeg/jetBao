@@ -1,0 +1,23 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      DATA_DIR: /data
+      UPLOAD_DIR: /data/uploads
+      OCR_API_KEY: ${OCR_API_KEY:-}
+      SEED_DEMO_USERS: ${SEED_DEMO_USERS:-true}
+    volumes:
+      - ./backend/data:/data
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
