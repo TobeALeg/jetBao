@@ -7,7 +7,13 @@ services:
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       DATA_DIR: /data
       UPLOAD_DIR: /data/uploads
-      OCR_API_KEY: ${OCR_API_KEY:-}
+      TENCENT_SECRET_ID: ${TENCENT_SECRET_ID:-}
+      TENCENT_SECRET_KEY: ${TENCENT_SECRET_KEY:-}
+      TENCENT_OCR_REGION: ${TENCENT_OCR_REGION:-ap-guangzhou}
+      TENCENT_OCR_ENDPOINT: ${TENCENT_OCR_ENDPOINT:-ocr.tencentcloudapi.com}
+      TENCENT_OCR_ACTION: ${TENCENT_OCR_ACTION:-RecognizeGeneralInvoice}
+      TENCENT_OCR_PDF_PAGE: ${TENCENT_OCR_PDF_PAGE:-1}
+      TENCENT_OCR_ENABLE_MULTIPLE_PAGE: ${TENCENT_OCR_ENABLE_MULTIPLE_PAGE:-true}
       SEED_DEMO_USERS: ${SEED_DEMO_USERS:-true}
     volumes:
       - ./backend/data:/data
