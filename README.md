@@ -46,6 +46,20 @@ docker compose up --build
 
 SQLite 数据库和上传文件会挂载到 `backend/data/`，不会提交到 Git。
 
+## 子路径部署
+
+如果部署在服务器子路径，例如 `http://服务器/bx/`，构建前端时需要同步设置页面资源前缀和 API 前缀：
+
+```bash
+FRONTEND_BASE_PATH=/bx/ \
+FRONTEND_API_BASE_URL=/bx/api \
+FRONTEND_PORT=127.0.0.1:18080 \
+BACKEND_PORT=127.0.0.1:18000 \
+docker compose up -d --build
+```
+
+主机 Nginx 负责把 `/bx/` 转发到前端容器，把 `/bx/api/` 转发到后端容器。
+
 ## 环境变量
 
 可以复制 `.env.example` 为 `.env` 后按需修改。

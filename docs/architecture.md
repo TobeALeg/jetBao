@@ -12,6 +12,7 @@
 - 员工接口只读写当前用户自己的 `expenses`。
 - 管理员接口通过台账查询所有人的 `expenses`，但不切换身份。
 - `services/export_package.py`：管理员导出服务，从 `expenses`、`expense_attachments`、`expense_invoice_allocations` 生成多 Sheet Excel 和附件 ZIP。
+- Docker 部署由前端 Nginx 容器和后端 FastAPI 容器组成；前端构建支持 `VITE_BASE_PATH` 和 `VITE_API_BASE_URL`，用于挂在服务器子路径如 `/bx/`。
 
 ### data flow
 
@@ -26,6 +27,7 @@
 9. 单 Excel 导出：`/api/admin/export.xlsx` 保留轻量台账文件。
 10. 明细包导出：`/api/admin/export-package.zip` 生成 `{月份}报销明细.xlsx` 和 `{月份}报销/{公司}{月份}报销/{员工}{月份}报销/{组ID-报销项-金额}/` 附件目录；交易记录附件来自 `expense_attachments`，发票文件来自 `expense_invoice_allocations`。
 11. 导出总览：首页按公司主体和公司+人员两层汇总报销项数、发票张数、票面金额、本次报销金额和差异，供财务先核对主体归属。
+12. 子路径部署：浏览器访问 `/bx/`，主机 Nginx 去掉 `/bx/` 前缀后转发静态页面到前端容器；浏览器访问 `/bx/api/*`，主机 Nginx 转发到后端容器的 `/api/*`。
 
 ### status flow
 

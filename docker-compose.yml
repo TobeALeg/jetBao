@@ -2,6 +2,7 @@ services:
   backend:
     build:
       context: ./backend
+    restart: unless-stopped
     environment:
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       DATA_DIR: /data
@@ -11,13 +12,16 @@ services:
     volumes:
       - ./backend/data:/data
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
 
   frontend:
     build:
       context: ./frontend
+      args:
+        VITE_BASE_PATH: ${FRONTEND_BASE_PATH:-/}
+        VITE_API_BASE_URL: ${FRONTEND_API_BASE_URL:-/api}
+    restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "8080:80"
-
+      - "${FRONTEND_PORT:-8080}:80"
