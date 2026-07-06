@@ -55,6 +55,7 @@ FRONTEND_BASE_PATH=/bx/ \
 FRONTEND_API_BASE_URL=/bx/api \
 FRONTEND_PORT=127.0.0.1:18080 \
 BACKEND_PORT=127.0.0.1:18000 \
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
 docker compose up -d --build
 ```
 

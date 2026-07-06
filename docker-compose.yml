@@ -2,6 +2,8 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
     restart: unless-stopped
     environment:
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
