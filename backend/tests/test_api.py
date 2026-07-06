@@ -231,6 +231,7 @@ def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
 def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     alice = auth_headers(client, "alice", "alice123")
+    bob = auth_headers(client, "bob", "bob123")
     admin = auth_headers(client, "admin", "admin123")
 
     payment = upload_file(client, alice, "payment.png", b"payment-image", "image/png")
@@ -298,6 +299,44 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
         },
     )
     assert match.status_code == 200
+    bob_invoice_id = insert_ocr_attachment(
+        client,
+        user_id=3,
+        invoice_items=[
+            {
+                "buyer": "杭州示例信息有限公司",
+                "seller_name": "杭州办公用品有限公司",
+                "item_name": "办公耗材",
+                "amount": 80,
+                "invoice_number": "BOB-1",
+                "date": "2026-05-23",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="bob-office.pdf",
+    )
+    bob_draft = client.post(
+        "/api/expenses/drafts",
+        headers=bob,
+        json={
+            "project_name": "办公耗材",
+            "actual_amount": 80,
+            "expense_month": "2026-05",
+            "category": "办公采购",
+        },
+    )
+    assert bob_draft.status_code == 200
+    bob_match = client.post(
+        "/api/expense-allocations",
+        headers=bob,
+        json={
+            "expense_id": bob_draft.json()["id"],
+            "attachment_id": bob_invoice_id,
+            "invoice_item_index": 0,
+            "note": "",
+        },
+    )
+    assert bob_match.status_code == 200
 
     package = client.get("/api/admin/export-package.zip?month=2026-05", headers=admin)
     assert package.status_code == 200
@@ -312,6 +351,42 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
 
     workbook = load_workbook(BytesIO(archive.read("5月报销明细.xlsx")))
     assert workbook.sheetnames == ["总览", "报销项汇总", "发票明细", "附件与待核对"]
+    overview = workbook["总览"]
+    assert overview["A1"].value == "5月发票/报销整理总览"
+    assert overview["A4"].value == "本次报销金额合计"
+    assert overview["A5"].value == 500
+    assert overview["C4"].value == "票面金额合计"
+    assert overview["C5"].value == 500
+    assert overview["E4"].value == "涉及人员"
+    assert overview["E5"].value == 2
+    assert overview["G4"].value == "发票张数"
+    assert overview["G5"].value == 3
+    assert [overview.cell(row=7, column=column).value for column in range(1, 8)] == [
+        "公司主体",
+        "人员数",
+        "报销项数",
+        "发票张数",
+        "票面金额合计",
+        "本次报销金额",
+        "票面-报销差异",
+    ]
+    company_rows = {
+        overview.cell(row=row, column=1).value: [overview.cell(row=row, column=column).value for column in range(2, 8)]
+        for row in range(8, 10)
+    }
+    assert company_rows["示例科技"] == [1, 1, 2, 420, 420, 0]
+    assert company_rows["杭州示例信息"] == [1, 1, 1, 80, 80, 0]
+    detail_header_row = next(
+        row
+        for row in range(1, overview.max_row + 1)
+        if overview.cell(row=row, column=1).value == "公司主体" and overview.cell(row=row, column=2).value == "人员"
+    )
+    detail_rows = {
+        overview.cell(row=row, column=2).value: [overview.cell(row=row, column=column).value for column in range(1, 8)]
+        for row in range(detail_header_row + 1, detail_header_row + 3)
+    }
+    assert detail_rows["Alice Chen"] == ["示例科技", "Alice Chen", 1, 2, 420, 420, 0]
+    assert detail_rows["Bob Li"] == ["杭州示例信息", "Bob Li", 1, 1, 80, 80, 0]
     summary = workbook["报销项汇总"]
     assert [cell.value for cell in summary[1]] == [
         "组ID",
@@ -334,8 +409,8 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
     assert summary["I2"].value == 420
 
     invoice_sheet = workbook["发票明细"]
-    assert invoice_sheet.max_row == 3
-    assert {invoice_sheet["G2"].value, invoice_sheet["G3"].value} == {"INV-A", "INV-B"}
+    assert invoice_sheet.max_row == 4
+    assert {invoice_sheet[f"G{row}"].value for row in range(2, 5)} == {"INV-A", "INV-B", "BOB-1"}
     attachments_sheet = workbook["附件与待核对"]
     assert attachments_sheet["D2"].value == "交易记录"
     assert attachments_sheet["E2"].value == "payment.png"
@@ -543,6 +618,126 @@ def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, mon
     pool = client.get("/api/invoice-pool", headers=alice)
     assert pool.status_code == 200
     assert all(item["attachment_id"] != invoice_like_attachment_id for item in pool.json())
+
+
+def test_employee_can_delete_transaction_attachment_from_expense(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    alice = auth_headers(client, "alice", "alice123")
+
+    image_upload = upload_file(client, alice, "wrong-payment.png", b"wrong-payment", "image/png")
+    assert image_upload.status_code == 200
+    draft = client.post(
+        "/api/expenses/drafts",
+        headers=alice,
+        json={
+            "project_name": "客户现场停车费",
+            "actual_amount": 199,
+            "expense_month": "2026-05",
+            "category": "差旅交通",
+        },
+    )
+    assert draft.status_code == 200
+    link = client.post(
+        f"/api/expenses/{draft.json()['id']}/attachments",
+        headers=alice,
+        json={"attachment_ids": [image_upload.json()["id"]]},
+    )
+    assert link.status_code == 200
+    assert len(link.json()["attachments"]) == 1
+
+    delete = client.delete(
+        f"/api/expenses/{draft.json()['id']}/attachments/{image_upload.json()['id']}",
+        headers=alice,
+    )
+    assert delete.status_code == 200
+    assert delete.json()["attachments"] == []
+    missing = client.get(f"/api/attachments/{image_upload.json()['id']}/content", headers=alice)
+    assert missing.status_code == 404
+
+
+def test_employee_can_delete_unused_invoice_attachment(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    alice = auth_headers(client, "alice", "alice123")
+    attachment_id = insert_ocr_attachment(
+        client,
+        user_id=2,
+        invoice_items=[
+            {
+                "buyer": "上海示例科技有限公司",
+                "amount": 88,
+                "invoice_number": "WRONG-1",
+                "date": "2026-05-23",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="wrong-invoice.pdf",
+    )
+    pool = client.get("/api/invoice-pool", headers=alice)
+    assert any(item["attachment_id"] == attachment_id for item in pool.json())
+
+    delete = client.delete(f"/api/attachments/{attachment_id}", headers=alice)
+    assert delete.status_code == 200
+    assert delete.json() == {"deleted": True}
+    pool_after = client.get("/api/invoice-pool", headers=alice)
+    assert all(item["attachment_id"] != attachment_id for item in pool_after.json())
+    missing = client.get(f"/api/attachments/{attachment_id}/content", headers=alice)
+    assert missing.status_code == 404
+
+
+def test_deleting_draft_expense_releases_matched_invoice(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    alice = auth_headers(client, "alice", "alice123")
+    attachment_id = insert_ocr_attachment(
+        client,
+        user_id=2,
+        invoice_items=[
+            {
+                "buyer": "上海示例科技有限公司",
+                "amount": 120,
+                "invoice_number": "PARTIAL-1",
+                "date": "2026-05-23",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="partial-invoice.pdf",
+    )
+    draft = client.post(
+        "/api/expenses/drafts",
+        headers=alice,
+        json={
+            "project_name": "客户拜访差旅",
+            "actual_amount": 300,
+            "expense_month": "2026-05",
+            "category": "差旅交通",
+        },
+    )
+    assert draft.status_code == 200
+    match = client.post(
+        "/api/expense-allocations",
+        headers=alice,
+        json={
+            "expense_id": draft.json()["id"],
+            "attachment_id": attachment_id,
+            "invoice_item_index": 0,
+            "note": "",
+        },
+    )
+    assert match.status_code == 200
+    assert match.json()["status"] == "draft"
+
+    used_pool = client.get("/api/invoice-pool", headers=alice)
+    used_item = next(item for item in used_pool.json() if item["attachment_id"] == attachment_id)
+    assert used_item["remaining_amount"] == 0
+
+    delete = client.delete(f"/api/expenses/{draft.json()['id']}", headers=alice)
+    assert delete.status_code == 200
+    assert delete.json() == {"deleted": True}
+    expenses = client.get("/api/expenses", headers=alice)
+    assert all(item["id"] != draft.json()["id"] for item in expenses.json())
+
+    released_pool = client.get("/api/invoice-pool", headers=alice)
+    released_item = next(item for item in released_pool.json() if item["attachment_id"] == attachment_id)
+    assert released_item["remaining_amount"] == 120
 
 
 def test_invoice_match_requires_reason_when_invoice_total_exceeds_expense(tmp_path, monkeypatch):

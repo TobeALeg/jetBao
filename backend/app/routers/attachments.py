@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
@@ -28,6 +29,13 @@ def _attachment_response(row) -> AttachmentResponse:
         ocr_result=json.loads(row["ocr_result"] or "{}"),
         created_at=row["created_at"],
     )
+
+
+def _delete_file(path_value: str) -> None:
+    try:
+        Path(path_value).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _save_and_recognize_attachment(request: Request, file: UploadFile, user) -> AttachmentResponse:
@@ -123,3 +131,45 @@ def get_attachment_content(
     if not path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="附件文件不存在")
     return FileResponse(path, filename=row["original_filename"])
+
+
+@router.delete("/attachments/{attachment_id}")
+def delete_attachment(
+    attachment_id: int,
+    request: Request,
+    user=Depends(get_current_user),
+) -> dict[str, bool]:
+    with request.app.state.db.connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM attachments WHERE id = ? AND user_id = ?",
+            (attachment_id, user["id"]),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="附件不存在")
+
+        allocation = connection.execute(
+            "SELECT id FROM expense_invoice_allocations WHERE attachment_id = ? LIMIT 1",
+            (attachment_id,),
+        ).fetchone()
+        if allocation is not None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已匹配到报销项目的发票不能直接删除")
+
+        expense_link = connection.execute(
+            """
+            SELECT 1
+            FROM expense_attachments
+            WHERE attachment_id = ?
+            LIMIT 1
+            """,
+            (attachment_id,),
+        ).fetchone()
+        if row["expense_id"] is not None or expense_link is not None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已挂到花费记录的附件请先从花费记录中删除")
+
+        try:
+            connection.execute("DELETE FROM attachments WHERE id = ?", (attachment_id,))
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="附件仍被其他记录使用，不能删除")
+
+    _delete_file(row["stored_path"])
+    return {"deleted": True}

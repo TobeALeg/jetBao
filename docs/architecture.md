@@ -20,10 +20,12 @@
 3. 发票池：用户上传发票附件，OCR 拆出票据条目；`/api/invoice-pool` 只返回未挂到 `expense_attachments` 的附件，并返回票面金额、已匹配金额和剩余可用金额。
 4. 匹配区：用户为同一条花费选择一张或多张发票，后端写入 `expense_invoice_allocations`；同一发票条目不能再匹配其他花费。
 5. 状态更新：花费项目已匹配票面合计达到实际金额后，后端把 `expenses.status` 更新为 `submitted`；否则保持 `draft`。如果票面合计超过实际金额，必须填写说明并标记为替票。
-6. 管理台账：管理员按月份、公司、员工、类别、状态等条件查询 `expenses`，同时查看交易记录附件和发票匹配摘要。
-7. 导出预览：后端只统计 `submitted` 记录，同时返回 matching 条件下的 `draft` 数量。
-8. 单 Excel 导出：`/api/admin/export.xlsx` 保留轻量台账文件。
-9. 明细包导出：`/api/admin/export-package.zip` 生成 `{月份}报销明细.xlsx` 和 `{月份}报销/{公司}{月份}报销/{员工}{月份}报销/{组ID-报销项-金额}/` 附件目录；交易记录附件来自 `expense_attachments`，发票文件来自 `expense_invoice_allocations`。
+6. 删除：员工可以删除 `draft` 花费记录、未匹配发票附件和花费记录里的交易附件；删除部分匹配花费会级联移除 `expense_invoice_allocations`，让发票回到发票池。
+7. 管理台账：管理员按月份、公司、员工、类别、状态等条件查询 `expenses`，同时查看交易记录附件和发票匹配摘要。
+8. 导出预览：后端只统计 `submitted` 记录，同时返回 matching 条件下的 `draft` 数量。
+9. 单 Excel 导出：`/api/admin/export.xlsx` 保留轻量台账文件。
+10. 明细包导出：`/api/admin/export-package.zip` 生成 `{月份}报销明细.xlsx` 和 `{月份}报销/{公司}{月份}报销/{员工}{月份}报销/{组ID-报销项-金额}/` 附件目录；交易记录附件来自 `expense_attachments`，发票文件来自 `expense_invoice_allocations`。
+11. 导出总览：首页按公司主体和公司+人员两层汇总报销项数、发票张数、票面金额、本次报销金额和差异，供财务先核对主体归属。
 
 ### status flow
 

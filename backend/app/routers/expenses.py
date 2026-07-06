@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import re
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -145,6 +146,13 @@ def _validate_expense(payload: ExpenseCreateRequest) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="替票报销必须填写替票说明")
     if amount_mismatch and not reason:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="发票金额与实际报销金额不一致时必须填写说明")
+
+
+def _delete_file(path_value: str) -> None:
+    try:
+        Path(path_value).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _validate_amount_reason(is_substitute: bool, actual_amount: float, invoice_amount: float, reason: str) -> None:
@@ -453,6 +461,85 @@ def list_invoice_pool(request: Request, user=Depends(get_current_user)) -> list[
                     )
                 )
     return result
+
+
+@router.delete("/expenses/{expense_id}")
+def delete_expense(
+    expense_id: int,
+    request: Request,
+    user=Depends(get_current_user),
+) -> dict[str, bool]:
+    files_to_delete: list[str] = []
+    with request.app.state.db.connect() as connection:
+        expense = connection.execute(
+            "SELECT * FROM expenses WHERE id = ? AND user_id = ?",
+            (expense_id, user["id"]),
+        ).fetchone()
+        if expense is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+        if expense["status"] == "submitted":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已提交记录不能在花费池直接删除")
+
+        transaction_attachments = _attachment_rows_for_expense(connection, expense_id)
+        files_to_delete = [row["stored_path"] for row in transaction_attachments]
+        attachment_ids = [row["id"] for row in transaction_attachments]
+
+        connection.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+        if attachment_ids:
+            placeholders = ",".join("?" for _ in attachment_ids)
+            connection.execute(
+                f"DELETE FROM attachments WHERE id IN ({placeholders}) AND user_id = ?",
+                (*attachment_ids, user["id"]),
+            )
+
+    for path in files_to_delete:
+        _delete_file(path)
+    return {"deleted": True}
+
+
+@router.delete("/expenses/{expense_id}/attachments/{attachment_id}", response_model=ExpenseResponse)
+def delete_expense_attachment(
+    expense_id: int,
+    attachment_id: int,
+    request: Request,
+    user=Depends(get_current_user),
+) -> ExpenseResponse:
+    deleted_path = ""
+    with request.app.state.db.connect() as connection:
+        expense = connection.execute(
+            "SELECT * FROM expenses WHERE id = ? AND user_id = ?",
+            (expense_id, user["id"]),
+        ).fetchone()
+        if expense is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+
+        attachment = connection.execute(
+            """
+            SELECT attachments.*
+            FROM attachments
+            LEFT JOIN expense_attachments ON expense_attachments.attachment_id = attachments.id
+            WHERE attachments.id = ?
+              AND attachments.user_id = ?
+              AND (attachments.expense_id = ? OR expense_attachments.expense_id = ?)
+            """,
+            (attachment_id, user["id"], expense_id, expense_id),
+        ).fetchone()
+        if attachment is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="交易记录附件不存在")
+
+        allocation = connection.execute(
+            "SELECT id FROM expense_invoice_allocations WHERE attachment_id = ? LIMIT 1",
+            (attachment_id,),
+        ).fetchone()
+        if allocation is not None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已作为发票使用的附件不能从花费记录中删除")
+
+        deleted_path = attachment["stored_path"]
+        connection.execute("DELETE FROM attachments WHERE id = ? AND user_id = ?", (attachment_id, user["id"]))
+        updated, linked_attachments, allocations = _load_expense(connection, expense_id)
+
+    _delete_file(deleted_path)
+    return serialize_expense(updated, linked_attachments, allocations)
 
 
 @router.post("/expense-allocations", response_model=ExpenseResponse)

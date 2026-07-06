@@ -108,6 +108,24 @@ export async function linkExpenseAttachments(id: number, payload: ExpenseAttachm
   });
 }
 
+export async function deleteExpense(id: number): Promise<{ deleted: boolean }> {
+  return request(`/expenses/${id}`, {
+    method: "DELETE"
+  });
+}
+
+export async function deleteExpenseAttachment(expenseId: number, attachmentId: number): Promise<Expense> {
+  return request(`/expenses/${expenseId}/attachments/${attachmentId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function deleteAttachment(id: number): Promise<{ deleted: boolean }> {
+  return request(`/attachments/${id}`, {
+    method: "DELETE"
+  });
+}
+
 export async function createExpense(payload: ExpenseCreatePayload): Promise<Expense> {
   return request("/expenses", {
     method: "POST",

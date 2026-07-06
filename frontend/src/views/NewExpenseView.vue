@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { AlertTriangle, CheckCircle2, ImagePlus, Link2, Loader2, PlusCircle, ReceiptText, X } from "lucide-vue-next";
+import { AlertTriangle, CheckCircle2, ImagePlus, Link2, Loader2, PlusCircle, ReceiptText, Trash2, X } from "lucide-vue-next";
 import AttachmentThumb from "../components/AttachmentThumb.vue";
 import InvoiceUploadPanel from "../components/InvoiceUploadPanel.vue";
 import { DEFAULT_EXPENSE_CATEGORY, EXPENSE_CATEGORIES } from "../constants/expenseCategories";
 import {
   createExpenseAllocationsBatch,
   createExpenseDraft,
+  deleteAttachment,
+  deleteExpense,
+  deleteExpenseAttachment,
   linkExpenseAttachments,
   listExpenses,
   listInvoicePool,
@@ -35,6 +38,9 @@ const success = ref("");
 const transactionInputRef = ref<HTMLInputElement | null>(null);
 const transactionTargetExpenseId = ref<number | null>(null);
 const transactionUploadingExpenseId = ref<number | null>(null);
+const deletingExpenseId = ref<number | null>(null);
+const deletingAttachmentId = ref<number | null>(null);
+const deletingExpenseAttachmentKey = ref("");
 
 const selectedExpenseId = ref<number | null>(props.draftExpense?.id ?? null);
 const selectedInvoiceKeys = ref<string[]>([]);
@@ -119,6 +125,10 @@ function selectInvoice(invoice: InvoicePoolItem) {
 
 function removeSelectedInvoice(key: string) {
   selectedInvoiceKeys.value = selectedInvoiceKeys.value.filter((item) => item !== key);
+}
+
+function attachmentDeleteKey(expenseId: number, attachmentId: number): string {
+  return `${expenseId}:${attachmentId}`;
 }
 
 function isTransactionImageFile(file: File): boolean {
@@ -218,10 +228,80 @@ async function handleUploaded(attachment: Attachment) {
   if (firstNewInvoice) selectInvoice(firstNewInvoice);
 }
 
-function removeUploaded(id: number) {
-  const removed = uploadedAttachments.value.find((item) => item.id === id);
-  if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url);
-  uploadedAttachments.value = uploadedAttachments.value.filter((item) => item.id !== id);
+async function removeUploaded(id: number) {
+  if (!window.confirm("删除这份刚上传的发票文件吗？")) return;
+  deletingAttachmentId.value = id;
+  error.value = "";
+  success.value = "";
+  try {
+    await deleteAttachment(id);
+    const removed = uploadedAttachments.value.find((item) => item.id === id);
+    if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url);
+    uploadedAttachments.value = uploadedAttachments.value.filter((item) => item.id !== id);
+    selectedInvoiceKeys.value = selectedInvoiceKeys.value.filter((key) => !key.startsWith(`${id}:`));
+    await loadWorkspace();
+    success.value = "发票文件已删除";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "删除发票失败";
+  } finally {
+    deletingAttachmentId.value = null;
+  }
+}
+
+async function deleteExpenseRecord(expense: Expense) {
+  if (!window.confirm(`删除花费记录「${expense.project_name || expense.category}」吗？`)) return;
+  deletingExpenseId.value = expense.id;
+  error.value = "";
+  success.value = "";
+  try {
+    await deleteExpense(expense.id);
+    if (selectedExpenseId.value === expense.id) selectedExpenseId.value = null;
+    selectedInvoiceKeys.value = [];
+    await loadWorkspace();
+    success.value = "花费记录已删除";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "删除花费记录失败";
+  } finally {
+    deletingExpenseId.value = null;
+  }
+}
+
+async function deleteInvoiceFile(invoice: InvoicePoolItem) {
+  if (!window.confirm(`删除发票「${invoice.attachment_name}」吗？`)) return;
+  deletingAttachmentId.value = invoice.attachment_id;
+  error.value = "";
+  success.value = "";
+  try {
+    await deleteAttachment(invoice.attachment_id);
+    selectedInvoiceKeys.value = selectedInvoiceKeys.value.filter((key) => !key.startsWith(`${invoice.attachment_id}:`));
+    const removed = uploadedAttachments.value.find((item) => item.id === invoice.attachment_id);
+    if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url);
+    uploadedAttachments.value = uploadedAttachments.value.filter((item) => item.id !== invoice.attachment_id);
+    await loadWorkspace();
+    success.value = "发票文件已删除";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "删除发票失败";
+  } finally {
+    deletingAttachmentId.value = null;
+  }
+}
+
+async function deleteTransactionAttachment(expense: Expense, attachment: Attachment) {
+  if (!window.confirm(`删除交易记录「${attachment.original_filename}」吗？`)) return;
+  const key = attachmentDeleteKey(expense.id, attachment.id);
+  deletingExpenseAttachmentKey.value = key;
+  error.value = "";
+  success.value = "";
+  try {
+    const updated = await deleteExpenseAttachment(expense.id, attachment.id);
+    expenses.value = expenses.value.map((item) => (item.id === updated.id ? updated : item));
+    selectedExpenseId.value = expense.id;
+    success.value = "交易记录已删除";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "删除交易记录失败";
+  } finally {
+    deletingExpenseAttachmentKey.value = "";
+  }
 }
 
 async function matchSelected() {
@@ -320,11 +400,16 @@ onMounted(loadWorkspace);
         </form>
       </section>
 
-      <InvoiceUploadPanel :attachments="uploadedAttachments" @uploaded="handleUploaded" @remove="removeUploaded" />
+      <InvoiceUploadPanel
+        :attachments="uploadedAttachments"
+        :removing-id="deletingAttachmentId"
+        @uploaded="handleUploaded"
+        @remove="removeUploaded"
+      />
     </div>
 
     <!-- 匹配区 -->
-    <section class="tool-panel overflow-hidden rounded-lg lg:sticky lg:top-4 lg:z-10">
+    <section class="tool-panel overflow-hidden rounded-lg">
       <div class="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 class="section-title">匹配篮</h2>
@@ -379,6 +464,19 @@ onMounted(loadWorkspace);
               >
                 <AttachmentThumb :attachment="attachment" />
                 <span class="truncate">{{ attachment.original_filename }}</span>
+                <button
+                  class="grid h-6 w-6 shrink-0 place-items-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-700"
+                  type="button"
+                  :disabled="deletingExpenseAttachmentKey === attachmentDeleteKey(selectedExpense.id, attachment.id)"
+                  :title="`删除 ${attachment.original_filename}`"
+                  @click="deleteTransactionAttachment(selectedExpense, attachment)"
+                >
+                  <Loader2
+                    v-if="deletingExpenseAttachmentKey === attachmentDeleteKey(selectedExpense.id, attachment.id)"
+                    class="h-3.5 w-3.5 animate-spin"
+                  />
+                  <X v-else class="h-3.5 w-3.5" />
+                </button>
               </div>
             </div>
           </div>
@@ -520,7 +618,6 @@ onMounted(loadWorkspace);
             :key="expense.id"
             class="flex cursor-pointer flex-col gap-3 rounded-lg border p-4 text-left transition hover:border-teal-300 hover:shadow-sm"
             :class="selectedExpenseId === expense.id ? 'border-teal-400 bg-teal-50/60 ring-2 ring-teal-700/10' : 'border-slate-200 bg-white'"
-            role="button"
             tabindex="0"
             @click="selectExpense(expense)"
             @keydown.enter.prevent="selectExpense(expense)"
@@ -530,9 +627,21 @@ onMounted(loadWorkspace);
                 <div class="truncate text-sm font-semibold text-ink">{{ expense.project_name || expense.category }}</div>
                 <div class="mt-1 text-xs text-slate-500">{{ expense.expense_month }} · {{ expense.category }}</div>
               </div>
-              <span class="status-pill shrink-0" :class="expense.status === 'submitted' ? 'bg-teal-50 text-teal-700' : 'bg-amber-50 text-amber-700'">
-                {{ statusLabel(expense) }}
-              </span>
+              <div class="flex shrink-0 items-center gap-1">
+                <span class="status-pill" :class="expense.status === 'submitted' ? 'bg-teal-50 text-teal-700' : 'bg-amber-50 text-amber-700'">
+                  {{ statusLabel(expense) }}
+                </span>
+                <button
+                  class="grid h-8 w-8 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:text-slate-300"
+                  type="button"
+                  :disabled="deletingExpenseId === expense.id"
+                  :title="`删除 ${expense.project_name || expense.category}`"
+                  @click.stop="deleteExpenseRecord(expense)"
+                >
+                  <Loader2 v-if="deletingExpenseId === expense.id" class="h-4 w-4 animate-spin" />
+                  <Trash2 v-else class="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <div class="grid gap-1.5 text-xs text-slate-500">
               <div>金额：<span class="font-medium text-slate-800">{{ formatCurrency(expense.actual_amount) }}</span></div>
@@ -546,6 +655,19 @@ onMounted(loadWorkspace);
               >
                 <AttachmentThumb :attachment="attachment" />
                 <span class="truncate">{{ attachment.original_filename }}</span>
+                <button
+                  class="grid h-6 w-6 shrink-0 place-items-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:text-slate-300"
+                  type="button"
+                  :disabled="deletingExpenseAttachmentKey === attachmentDeleteKey(expense.id, attachment.id)"
+                  :title="`删除 ${attachment.original_filename}`"
+                  @click.stop="deleteTransactionAttachment(expense, attachment)"
+                >
+                  <Loader2
+                    v-if="deletingExpenseAttachmentKey === attachmentDeleteKey(expense.id, attachment.id)"
+                    class="h-3.5 w-3.5 animate-spin"
+                  />
+                  <X v-else class="h-3.5 w-3.5" />
+                </button>
               </div>
               <button
                 class="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 transition hover:border-teal-600 hover:text-teal-700"
@@ -577,22 +699,35 @@ onMounted(loadWorkspace);
           </div>
         </div>
         <div v-else class="grid gap-3 p-5 sm:grid-cols-2">
-          <button
+          <article
             v-for="invoice in usableInvoices"
             :key="invoiceKey(invoice)"
-            class="flex flex-col gap-3 rounded-lg border p-4 text-left transition hover:border-teal-300 hover:shadow-sm"
+            class="flex cursor-pointer flex-col gap-3 rounded-lg border p-4 text-left transition hover:border-teal-300 hover:shadow-sm"
             :class="selectedInvoiceKeys.includes(invoiceKey(invoice)) ? 'border-teal-400 bg-teal-50/60 ring-2 ring-teal-700/10' : 'border-slate-200 bg-white'"
-            type="button"
+            tabindex="0"
             @click="selectInvoice(invoice)"
+            @keydown.enter.prevent="selectInvoice(invoice)"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="truncate text-sm font-semibold text-ink">{{ invoice.invoice_type }}</div>
                 <div class="mt-1 truncate text-xs text-slate-500">{{ invoice.attachment_name }}</div>
               </div>
-              <span class="status-pill shrink-0" :class="invoice.allocated_amount ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'">
-                {{ invoiceStatusLabel(invoice) }}
-              </span>
+              <div class="flex shrink-0 items-center gap-1">
+                <span class="status-pill" :class="invoice.allocated_amount ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'">
+                  {{ invoiceStatusLabel(invoice) }}
+                </span>
+                <button
+                  class="grid h-8 w-8 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:text-slate-300"
+                  type="button"
+                  :disabled="deletingAttachmentId === invoice.attachment_id"
+                  :title="`删除 ${invoice.attachment_name}`"
+                  @click.stop="deleteInvoiceFile(invoice)"
+                >
+                  <Loader2 v-if="deletingAttachmentId === invoice.attachment_id" class="h-4 w-4 animate-spin" />
+                  <Trash2 v-else class="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <div class="grid gap-1.5 text-xs text-slate-500">
               <div>票面：<span class="font-medium text-slate-800">{{ formatCurrency(invoice.invoice_amount) }}</span></div>
@@ -604,7 +739,7 @@ onMounted(loadWorkspace);
               <span class="truncate">{{ invoice.invoice_buyer || "未识别抬头" }}</span>
               <CheckCircle2 v-if="invoice.invoice_buyer && invoice.invoice_buyer.includes(user.company_entity)" class="h-3.5 w-3.5 shrink-0 text-teal-700" />
             </div>
-          </button>
+          </article>
         </div>
       </section>
     </div>

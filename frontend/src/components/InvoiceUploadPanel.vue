@@ -7,6 +7,7 @@ import type { Attachment } from "../types";
 
 const props = defineProps<{
   attachments: Attachment[];
+  removingId?: number | null;
 }>();
 
 const emit = defineEmits<{
@@ -235,8 +236,14 @@ async function handleDrop(event: DragEvent) {
               </span>
             </div>
           </div>
-          <button class="text-sm text-slate-500 hover:text-rose-700" type="button" @click="$emit('remove', attachment.id)">
-            移除
+          <button
+            class="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-sm text-slate-500 transition hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:text-slate-300"
+            type="button"
+            :disabled="removingId === attachment.id"
+            @click="$emit('remove', attachment.id)"
+          >
+            <Loader2 v-if="removingId === attachment.id" class="h-3.5 w-3.5 animate-spin" />
+            {{ removingId === attachment.id ? "删除中" : "删除" }}
           </button>
         </div>
         <div class="space-y-2 border-t border-slate-100 px-3 py-3 text-xs text-slate-500">

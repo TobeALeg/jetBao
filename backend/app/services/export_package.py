@@ -319,29 +319,131 @@ def _attachment_count(bundle: ExportBundle) -> int:
 
 
 def _fill_overview(sheet, bundles: list[ExportBundle], month: str | None, company_entity: str | None) -> None:
-    employee_count = len({bundle.expense["employee_name"] for bundle in bundles})
-    total_amount = round(sum(float(bundle.expense["actual_amount"]) for bundle in bundles), 2)
+    metrics = _overview_metrics(bundles)
+    sheet.merge_cells("A1:G2")
+    sheet["A1"] = f"{month_label(month)}发票/报销整理总览"
+    sheet["A4"] = "本次报销金额合计"
+    sheet["A5"] = metrics["actual_total"]
+    sheet["C4"] = "票面金额合计"
+    sheet["C5"] = metrics["invoice_total"]
+    sheet["E4"] = "涉及人员"
+    sheet["E5"] = metrics["employee_count"]
+    sheet["G4"] = "发票张数"
+    sheet["G5"] = metrics["invoice_count"]
+
+    company_start = 7
+    company_rows = _overview_company_rows(bundles)
+    _append_overview_table(
+        sheet,
+        company_start,
+        ["公司主体", "人员数", "报销项数", "发票张数", "票面金额合计", "本次报销金额", "票面-报销差异"],
+        company_rows,
+    )
+
+    detail_start = company_start + max(len(company_rows), 1) + 3
+    _append_overview_table(
+        sheet,
+        detail_start,
+        ["公司主体", "人员", "报销项数", "发票张数", "票面金额合计", "本次报销金额", "票面-报销差异"],
+        _overview_employee_rows(bundles),
+    )
+
+    note_start = detail_start + max(len(_overview_employee_rows(bundles)), 1) + 3
+    sheet.merge_cells(start_row=note_start, start_column=1, end_row=note_start, end_column=7)
+    sheet.cell(row=note_start, column=1, value="核对提示")
+    for index, note in enumerate(_overview_notes(bundles), start=1):
+        row = note_start + index
+        sheet.cell(row=row, column=1, value=index)
+        sheet.cell(row=row, column=2, value=note)
+        sheet.merge_cells(start_row=row, start_column=2, end_row=row, end_column=7)
+
+
+def _append_overview_table(sheet, start_row: int, headers: list[str], rows: list[list[object]]) -> None:
+    for column, header in enumerate(headers, start=1):
+        sheet.cell(row=start_row, column=column, value=header)
+    if not rows:
+        sheet.cell(row=start_row + 1, column=1, value="无数据")
+        sheet.merge_cells(start_row=start_row + 1, start_column=1, end_row=start_row + 1, end_column=len(headers))
+        return
+    for row_offset, row_values in enumerate(rows, start=1):
+        for column, value in enumerate(row_values, start=1):
+            sheet.cell(row=start_row + row_offset, column=column, value=value)
+
+
+def _overview_metrics(bundles: list[ExportBundle]) -> dict[str, float | int]:
+    actual_total = round(sum(_actual_total(bundle) for bundle in bundles), 2)
     invoice_total = round(sum(_invoice_total(bundle) for bundle in bundles), 2)
+    return {
+        "actual_total": actual_total,
+        "invoice_total": invoice_total,
+        "employee_count": len({(bundle.expense["company_entity"], bundle.expense["employee_name"]) for bundle in bundles}),
+        "invoice_count": sum(len(bundle.invoices) for bundle in bundles),
+    }
+
+
+def _overview_company_rows(bundles: list[ExportBundle]) -> list[list[object]]:
+    rows = []
+    for company, group in _group_bundles(bundles, lambda bundle: bundle.expense["company_entity"]).items():
+        rows.append(_overview_row(company_alias(company), group))
+    return rows
+
+
+def _overview_employee_rows(bundles: list[ExportBundle]) -> list[list[object]]:
+    rows = []
+    grouped = _group_bundles(
+        bundles,
+        lambda bundle: (bundle.expense["company_entity"], bundle.expense["employee_name"]),
+    )
+    for (company, employee_name), group in grouped.items():
+        rows.append(_overview_row(company_alias(company), group, employee_name))
+    return rows
+
+
+def _overview_row(company_name: str, bundles: list[ExportBundle], employee_name: str | None = None) -> list[object]:
+    actual_total = round(sum(_actual_total(bundle) for bundle in bundles), 2)
+    invoice_total = round(sum(_invoice_total(bundle) for bundle in bundles), 2)
+    common = [
+        company_name,
+        len({bundle.expense["employee_name"] for bundle in bundles}) if employee_name is None else employee_name,
+        len(bundles),
+        sum(len(bundle.invoices) for bundle in bundles),
+        invoice_total,
+        actual_total,
+        round(invoice_total - actual_total, 2),
+    ]
+    return common
+
+
+def _group_bundles(bundles: list[ExportBundle], key_fn) -> dict:
+    grouped = {}
+    for bundle in bundles:
+        key = key_fn(bundle)
+        grouped.setdefault(key, []).append(bundle)
+    return dict(sorted(grouped.items(), key=lambda item: str(item[0])))
+
+
+def _actual_total(bundle: ExportBundle) -> float:
+    return round(float(bundle.expense["actual_amount"]), 2)
+
+
+def _overview_notes(bundles: list[ExportBundle]) -> list[str]:
     substitute_count = sum(1 for bundle in bundles if bundle.expense["is_substitute"])
-    missing_count = sum(
-        1
+    missing_documents = [
+        document
         for bundle in bundles
         for document in [*bundle.transaction_attachments, *[invoice.document for invoice in bundle.invoices]]
         if not document.exists
-    )
-
-    sheet.append(["导出范围", ""])
-    sheet.append(["月份", month or "全部月份"])
-    sheet.append(["公司主体", company_entity or "全部公司"])
-    sheet.append([])
-    sheet.append(["指标", "数值"])
-    sheet.append(["报销人数", employee_count])
-    sheet.append(["报销项数", len(bundles)])
-    sheet.append(["报销金额合计", total_amount])
-    sheet.append(["票面金额合计", invoice_total])
-    sheet.append(["票面-报销差异", round(invoice_total - total_amount, 2)])
-    sheet.append(["替票/金额差异项", substitute_count])
-    sheet.append(["附件文件缺失", missing_count])
+    ]
+    notes = [
+        "“本次报销金额”按花费项目实际金额归集；替票场景不直接按发票票面金额报销。",
+        "发票开票日期和报销归属按已提交记录整理，待补材料不会进入正式导出。",
+        "“附件与待核对”列出交易记录、支付截图、详情截图等非正式发票材料。",
+    ]
+    if substitute_count:
+        notes.append(f"共有 {substitute_count} 个替票/金额差异项，请在报销项汇总和发票明细中核对说明。")
+    if missing_documents:
+        notes.append(f"共有 {len(missing_documents)} 个源附件文件缺失，请在附件与待核对中补齐。")
+    return notes
 
 
 def _fill_summary(sheet, bundles: list[ExportBundle]) -> None:
@@ -492,6 +594,10 @@ def _ticket_status(bundle: ExportBundle) -> str:
 
 
 def _style_sheet(sheet) -> None:
+    if sheet.title == "总览":
+        _style_overview_sheet(sheet)
+        return
+
     header_fill = PatternFill("solid", fgColor="0F766E")
     header_font = Font(color="FFFFFF", bold=True)
     thin = Side(style="thin", color="D9E2E0")
@@ -526,3 +632,80 @@ def _style_sheet(sheet) -> None:
     sheet.freeze_panes = "A2" if sheet.title != "总览" else "A6"
     if sheet.title != "总览":
         sheet.auto_filter.ref = sheet.dimensions
+
+
+def _style_overview_sheet(sheet) -> None:
+    navy = "1F4E78"
+    pale_blue = "BFE8F4"
+    pale_header = "F3F7FB"
+    line_blue = "2BAAE2"
+    red = "FF0000"
+    border_side = Side(style="thin", color=line_blue)
+    light_side = Side(style="thin", color="E5E7EB")
+    currency_format = '"¥"#,##0.00;[Red]-"¥"#,##0.00'
+
+    sheet.sheet_view.showGridLines = True
+    sheet.freeze_panes = "A7"
+    widths = {"A": 18, "B": 18, "C": 14, "D": 14, "E": 18, "F": 18, "G": 18}
+    for column, width in widths.items():
+        sheet.column_dimensions[column].width = width
+
+    for row in sheet.iter_rows(min_row=1, max_row=sheet.max_row, min_col=1, max_col=7):
+        for cell in row:
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            cell.border = Border(left=light_side, right=light_side, top=light_side, bottom=light_side)
+            if isinstance(cell.value, (int, float)):
+                cell.number_format = "#,##0"
+
+    title = sheet["A1"]
+    title.fill = PatternFill("solid", fgColor=navy)
+    title.font = Font(color="FFFFFF", bold=True, size=18)
+    title.alignment = Alignment(horizontal="center", vertical="center")
+    for row in range(1, 3):
+        sheet.row_dimensions[row].height = 28
+        for column in range(1, 8):
+            sheet.cell(row=row, column=column).fill = PatternFill("solid", fgColor=navy)
+
+    for label_cell, value_cell in (("A4", "A5"), ("C4", "C5"), ("E4", "E5"), ("G4", "G5")):
+        sheet[label_cell].fill = PatternFill("solid", fgColor=pale_header)
+        sheet[label_cell].font = Font(color=navy, bold=True, size=12)
+        sheet[label_cell].alignment = Alignment(horizontal="center")
+        sheet[value_cell].font = Font(color=navy, bold=True, size=15)
+        sheet[value_cell].alignment = Alignment(horizontal="center")
+    sheet["A5"].number_format = currency_format
+    sheet["C5"].number_format = currency_format
+
+    for row_index in range(1, sheet.max_row + 1):
+        first_value = sheet.cell(row=row_index, column=1).value
+        if first_value == "公司主体":
+            for column in range(1, 8):
+                cell = sheet.cell(row=row_index, column=column)
+                cell.fill = PatternFill("solid", fgColor=navy)
+                cell.font = Font(color=red if column == 6 else "FFFFFF", bold=True, size=12)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = Border(left=border_side, right=border_side, top=border_side, bottom=border_side)
+            _style_overview_table_body(sheet, row_index + 1, currency_format, pale_blue, line_blue, red)
+        if first_value == "核对提示":
+            for column in range(1, 8):
+                cell = sheet.cell(row=row_index, column=column)
+                cell.fill = PatternFill("solid", fgColor=navy)
+                cell.font = Font(color="FFFFFF", bold=True, size=12)
+                cell.alignment = Alignment(horizontal="center")
+
+
+def _style_overview_table_body(sheet, start_row: int, currency_format: str, fill_color: str, line_color: str, red: str) -> None:
+    side = Side(style="thin", color=line_color)
+    row = start_row
+    while row <= sheet.max_row and sheet.cell(row=row, column=1).value not in (None, "核对提示", "公司主体"):
+        use_fill = row == start_row or row % 2 == 1
+        for column in range(1, 8):
+            cell = sheet.cell(row=row, column=column)
+            if use_fill:
+                cell.fill = PatternFill("solid", fgColor=fill_color)
+            cell.border = Border(left=side, right=side, top=side, bottom=side)
+            if column in (5, 6, 7) and isinstance(cell.value, (int, float)):
+                cell.number_format = currency_format
+            if column == 6:
+                cell.font = Font(color=red)
+            cell.alignment = Alignment(horizontal="right" if column >= 2 else "left", vertical="center")
+        row += 1
