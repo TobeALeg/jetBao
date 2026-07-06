@@ -9,7 +9,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="tool-panel grid divide-y divide-slate-200 rounded-lg sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+  <div class="tool-panel grid divide-y divide-slate-200 rounded-lg sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
     <div v-for="item in stats" :key="item.label" class="px-5 py-4">
       <div class="text-xs text-slate-500">{{ item.label }}</div>
       <div
@@ -25,4 +25,3 @@ defineProps<{
     </div>
   </div>
 </template>
-

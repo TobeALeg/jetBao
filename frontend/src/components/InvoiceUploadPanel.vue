@@ -158,8 +158,8 @@ async function handleDrop(event: DragEvent) {
 <template>
   <section class="tool-panel rounded-lg">
     <div class="border-b border-slate-200 px-5 py-4">
-      <h2 class="section-title">发票附件</h2>
-      <p class="muted mt-1">支持 PDF 或图片。OCR 不可用时可以继续手动填写。</p>
+      <h2 class="section-title">上传发票附件</h2>
+      <p class="muted mt-1">拖拽或点击上传，支持 PDF 和图片，自动识别票据条目。</p>
     </div>
 
     <div class="space-y-4 p-5">
@@ -200,7 +200,9 @@ async function handleDrop(event: DragEvent) {
         </div>
       </div>
 
-      <div v-if="!attachments.length" class="text-sm text-slate-500">还没有上传附件。</div>
+      <div v-if="!attachments.length" class="guide-hint mt-2">
+        上传发票后，系统会自动识别票据条目并进入发票池等待匹配。
+      </div>
 
       <div v-for="attachment in attachments" :key="attachment.id" class="rounded-lg border border-slate-200 bg-white">
         <div class="flex gap-3 p-3">

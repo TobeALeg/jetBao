@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
 import { Save } from "lucide-vue-next";
+import { DEFAULT_EXPENSE_CATEGORY, EXPENSE_CATEGORIES } from "../constants/expenseCategories";
 import { currentMonth } from "../utils/format";
 import type { Attachment, ExpenseCreatePayload, User } from "../types";
 
@@ -15,7 +16,8 @@ const emit = defineEmits<{
 }>();
 
 const form = reactive({
-  category: "差旅交通",
+  project_name: "",
+  category: DEFAULT_EXPENSE_CATEGORY,
   expense_month: currentMonth(),
   actual_amount: "",
   invoice_amount: "",
@@ -52,6 +54,7 @@ function submit() {
   }
 
   emit("submit", {
+    project_name: form.project_name.trim(),
     category: form.category,
     expense_month: form.expense_month,
     actual_amount: actualAmount,
@@ -73,6 +76,11 @@ function submit() {
 
     <form class="space-y-5 p-5" @submit.prevent="submit">
       <div>
+        <label class="field-label" for="project-name">项目名称</label>
+        <input id="project-name" v-model="form.project_name" class="field-input mt-1" />
+      </div>
+
+      <div>
         <label class="field-label">公司主体</label>
         <div class="mt-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
           {{ user.company_entity }}
@@ -83,11 +91,7 @@ function submit() {
         <div>
           <label class="field-label" for="category">报销类别</label>
           <select id="category" v-model="form.category" class="field-input mt-1">
-            <option>差旅交通</option>
-            <option>餐饮招待</option>
-            <option>办公采购</option>
-            <option>市场活动</option>
-            <option>其他</option>
+            <option v-for="category in EXPENSE_CATEGORIES" :key="category">{{ category }}</option>
           </select>
         </div>
         <div>
@@ -136,4 +140,3 @@ function submit() {
     </form>
   </section>
 </template>
-

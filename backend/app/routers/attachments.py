@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
 
 from app.dependencies import get_current_user
 from app.schemas import AttachmentResponse
@@ -102,3 +103,23 @@ def upload_attachments(
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少上传一个附件")
     return [_save_and_recognize_attachment(request, file, user) for file in files]
+
+
+@router.get("/attachments/{attachment_id}/content")
+def get_attachment_content(
+    attachment_id: int,
+    request: Request,
+    user=Depends(get_current_user),
+) -> FileResponse:
+    with request.app.state.db.connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM attachments WHERE id = ? AND user_id = ?",
+            (attachment_id, user["id"]),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="附件不存在")
+
+    path = Path(row["stored_path"])
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="附件文件不存在")
+    return FileResponse(path, filename=row["original_filename"])

@@ -5,6 +5,10 @@ import { downloadExport, getExportPreview } from "../services/api";
 import { currentMonth } from "../utils/format";
 import type { ExportPreview } from "../types";
 
+defineEmits<{
+  "show-drafts": [];
+}>();
+
 const filters = ref<Record<string, string>>({
   month: currentMonth(),
   company_entity: ""
@@ -49,6 +53,11 @@ onMounted(loadPreview);
       <p class="muted mt-1">选择月份和公司主体后导出 Excel 台账。</p>
     </div>
 
+    <div class="guide-hint">
+      <span>提示：</span>
+      <span>导出的 Excel 仅包含「已提交」的记录。「待补材料」的草稿不会进入导出文件。</span>
+    </div>
+
     <section class="tool-panel rounded-lg p-5">
       <div class="grid gap-4 sm:grid-cols-2">
         <div>
@@ -72,7 +81,12 @@ onMounted(loadPreview);
     </section>
 
     <p v-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
-    <ExportPreviewPanel :preview="preview" :loading="loading" :exporting="exporting" @export="exportFile" />
+    <ExportPreviewPanel
+      :preview="preview"
+      :loading="loading"
+      :exporting="exporting"
+      @export="exportFile"
+      @show-drafts="$emit('show-drafts')"
+    />
   </div>
 </template>
-

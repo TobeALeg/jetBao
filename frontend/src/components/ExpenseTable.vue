@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, FileText } from "lucide-vue-next";
+import { AlertTriangle, FileText, Upload } from "lucide-vue-next";
 import { formatCurrency, formatDate } from "../utils/format";
 import type { Expense } from "../types";
 
@@ -7,6 +7,18 @@ defineProps<{
   expenses: Expense[];
   loading?: boolean;
 }>();
+
+defineEmits<{
+  "complete-draft": [expense: Expense];
+}>();
+
+function statusLabel(status: Expense["status"]): string {
+  return status === "draft" ? "待补材料" : "已提交";
+}
+
+function statusClass(status: Expense["status"]): string {
+  return status === "draft" ? "bg-amber-50 text-amber-700" : "bg-teal-50 text-teal-700";
+}
 </script>
 
 <template>
@@ -19,24 +31,35 @@ defineProps<{
     </div>
 
     <div v-if="loading" class="px-5 py-12 text-center text-sm text-slate-500">正在加载...</div>
-    <div v-else-if="!expenses.length" class="px-5 py-12 text-center text-sm text-slate-500">暂无报销记录</div>
+    <div v-else-if="!expenses.length" class="empty-state">
+      <div class="empty-state-icon">
+        <FileText class="h-6 w-6" />
+      </div>
+      <div>
+        <div class="text-sm font-medium text-slate-700">还没有报销记录</div>
+        <div class="mt-1 text-xs text-slate-500">回到首页点「记一笔」开始录入第一笔报销。</div>
+      </div>
+    </div>
 
     <div v-else class="overflow-x-auto">
       <table class="min-w-full divide-y divide-slate-200 text-left text-sm">
         <thead class="bg-slate-50 text-xs font-medium uppercase tracking-normal text-slate-500">
           <tr>
             <th class="px-5 py-3">月份</th>
+            <th class="px-5 py-3">项目</th>
             <th class="px-5 py-3">类别</th>
             <th class="px-5 py-3">金额</th>
             <th class="px-5 py-3">替票</th>
             <th class="px-5 py-3">附件</th>
             <th class="px-5 py-3">状态</th>
             <th class="px-5 py-3">提交时间</th>
+            <th class="px-5 py-3">操作</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 bg-white">
           <tr v-for="expense in expenses" :key="expense.id" class="hover:bg-slate-50/70">
             <td class="whitespace-nowrap px-5 py-4 font-medium text-slate-900">{{ expense.expense_month }}</td>
+            <td class="min-w-48 px-5 py-4 text-slate-700">{{ expense.project_name || expense.note || "-" }}</td>
             <td class="whitespace-nowrap px-5 py-4 text-slate-700">{{ expense.category }}</td>
             <td class="whitespace-nowrap px-5 py-4 font-medium text-slate-900">
               {{ formatCurrency(expense.actual_amount) }}
@@ -60,13 +83,24 @@ defineProps<{
               </div>
             </td>
             <td class="whitespace-nowrap px-5 py-4">
-              <span class="status-pill bg-teal-50 text-teal-700">已提交</span>
+              <span class="status-pill" :class="statusClass(expense.status)">{{ statusLabel(expense.status) }}</span>
             </td>
             <td class="whitespace-nowrap px-5 py-4 text-slate-500">{{ formatDate(expense.created_at) }}</td>
+            <td class="whitespace-nowrap px-5 py-4">
+              <button
+                v-if="expense.status === 'draft'"
+                class="secondary-button h-9 px-3"
+                type="button"
+                @click="$emit('complete-draft', expense)"
+              >
+                <Upload class="h-4 w-4" />
+                补材料
+              </button>
+              <span v-else class="text-sm text-slate-400">-</span>
+            </td>
           </tr>
         </tbody>
       </table>
     </div>
   </div>
 </template>
-

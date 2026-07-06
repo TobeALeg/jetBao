@@ -21,6 +21,7 @@ def _ledger_query(
     category: str | None,
     is_substitute: bool | None,
     has_duplicate: bool | None,
+    record_status: str | None,
 ) -> tuple[str, list[object]]:
     where = []
     params: list[object] = []
@@ -42,6 +43,9 @@ def _ledger_query(
     if has_duplicate is not None:
         where.append("expenses.has_duplicate = ?")
         params.append(int(has_duplicate))
+    if record_status:
+        where.append("expenses.status = ?")
+        params.append(record_status)
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     query = f"""
@@ -49,6 +53,7 @@ def _ledger_query(
             expenses.id,
             expenses.company_entity,
             users.employee_name,
+            expenses.project_name,
             expenses.category,
             expenses.expense_month,
             expenses.actual_amount,
@@ -60,15 +65,30 @@ def _ledger_query(
             expenses.is_substitute,
             expenses.substitute_reason,
             expenses.note,
+            expenses.status,
             expenses.has_duplicate,
             expenses.created_at,
-            COALESCE(GROUP_CONCAT(attachments.original_filename, '、'), '') AS attachment_names
+            COALESCE((
+                SELECT GROUP_CONCAT(attachments.original_filename, '、')
+                FROM expense_attachments
+                JOIN attachments ON attachments.id = expense_attachments.attachment_id
+                WHERE expense_attachments.expense_id = expenses.id
+            ), '') AS attachment_names,
+            COALESCE((
+                SELECT GROUP_CONCAT(
+                    CASE
+                        WHEN expense_invoice_allocations.invoice_number != ''
+                        THEN expense_invoice_allocations.invoice_number
+                        ELSE '发票'
+                    END || ':' || expense_invoice_allocations.allocated_amount,
+                    '、'
+                )
+                FROM expense_invoice_allocations
+                WHERE expense_invoice_allocations.expense_id = expenses.id
+            ), '') AS allocation_summary
         FROM expenses
         JOIN users ON users.id = expenses.user_id
-        LEFT JOIN expense_attachments ON expense_attachments.expense_id = expenses.id
-        LEFT JOIN attachments ON attachments.id = expense_attachments.attachment_id
         {where_sql}
-        GROUP BY expenses.id
         ORDER BY expenses.created_at DESC
     """
     return query, params
@@ -79,6 +99,7 @@ def _serialize_ledger_row(row) -> LedgerRow:
         id=row["id"],
         company_entity=row["company_entity"],
         employee_name=row["employee_name"],
+        project_name=row["project_name"],
         category=row["category"],
         expense_month=row["expense_month"],
         actual_amount=row["actual_amount"],
@@ -90,9 +111,11 @@ def _serialize_ledger_row(row) -> LedgerRow:
         is_substitute=bool(row["is_substitute"]),
         substitute_reason=row["substitute_reason"],
         note=row["note"],
+        status=row["status"],
         has_duplicate=bool(row["has_duplicate"]),
         created_at=row["created_at"],
         attachment_names=row["attachment_names"],
+        allocation_summary=row["allocation_summary"],
     )
 
 
@@ -105,9 +128,10 @@ def ledger(
     category: str | None = None,
     is_substitute: bool | None = Query(default=None),
     has_duplicate: bool | None = Query(default=None),
+    record_status: str | None = Query(default=None, alias="status"),
     admin=Depends(require_admin),
 ) -> list[LedgerRow]:
-    query, params = _ledger_query(month, company_entity, employee, category, is_substitute, has_duplicate)
+    query, params = _ledger_query(month, company_entity, employee, category, is_substitute, has_duplicate, record_status)
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
     return [_serialize_ledger_row(row) for row in rows]
@@ -120,12 +144,19 @@ def export_preview(
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> ExportPreview:
-    query, params = _ledger_query(month, company_entity, None, None, None, None)
+    query, params = _ledger_query(month, company_entity, None, None, None, None, "submitted")
+    draft_query, draft_params = _ledger_query(month, company_entity, None, None, None, None, "draft")
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
+        draft_rows = connection.execute(draft_query, draft_params).fetchall()
     employee_count = len({row["employee_name"] for row in rows})
     total_amount = round(sum(float(row["actual_amount"]) for row in rows), 2)
-    return ExportPreview(employee_count=employee_count, record_count=len(rows), total_amount=total_amount)
+    return ExportPreview(
+        employee_count=employee_count,
+        record_count=len(rows),
+        total_amount=total_amount,
+        pending_draft_count=len(draft_rows),
+    )
 
 
 @router.get("/export.xlsx")
@@ -135,7 +166,7 @@ def export_excel(
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> StreamingResponse:
-    query, params = _ledger_query(month, company_entity, None, None, None, None)
+    query, params = _ledger_query(month, company_entity, None, None, None, None, "submitted")
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
 
@@ -145,6 +176,7 @@ def export_excel(
     headers = [
         "公司主体",
         "员工",
+        "项目",
         "类别",
         "报销月份",
         "实际报销金额",
@@ -155,7 +187,8 @@ def export_excel(
         "是否替票",
         "说明",
         "提交时间",
-        "附件文件名",
+        "交易记录附件",
+        "发票分摊",
     ]
     sheet.append(headers)
     for row in rows:
@@ -163,6 +196,7 @@ def export_excel(
             [
                 row["company_entity"],
                 row["employee_name"],
+                row["project_name"],
                 row["category"],
                 row["expense_month"],
                 row["actual_amount"],
@@ -174,6 +208,7 @@ def export_excel(
                 row["substitute_reason"] or row["note"],
                 row["created_at"],
                 row["attachment_names"],
+                row["allocation_summary"],
             ]
         )
 

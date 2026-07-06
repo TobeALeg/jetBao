@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Search } from "lucide-vue-next";
+import { EXPENSE_CATEGORIES } from "../constants/expenseCategories";
 
 const filters = defineModel<Record<string, string>>({ required: true });
 
@@ -10,7 +11,7 @@ defineEmits<{
 
 <template>
   <section class="tool-panel rounded-lg p-4">
-    <div class="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+    <div class="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
       <div>
         <label class="field-label" for="ledger-month">月份</label>
         <input id="ledger-month" v-model="filters.month" class="field-input mt-1" type="month" />
@@ -27,11 +28,15 @@ defineEmits<{
         <label class="field-label" for="ledger-category">类别</label>
         <select id="ledger-category" v-model="filters.category" class="field-input mt-1">
           <option value="">全部</option>
-          <option>差旅交通</option>
-          <option>餐饮招待</option>
-          <option>办公采购</option>
-          <option>市场活动</option>
-          <option>其他</option>
+          <option v-for="category in EXPENSE_CATEGORIES" :key="category">{{ category }}</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label" for="ledger-status">状态</label>
+        <select id="ledger-status" v-model="filters.status" class="field-input mt-1">
+          <option value="">全部</option>
+          <option value="submitted">已提交</option>
+          <option value="draft">待补材料</option>
         </select>
       </div>
       <div>
@@ -59,4 +64,3 @@ defineEmits<{
     </div>
   </section>
 </template>
-

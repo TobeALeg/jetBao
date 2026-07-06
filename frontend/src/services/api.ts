@@ -3,10 +3,15 @@ import type {
   AdminUserCreatePayload,
   AdminUserUpdatePayload,
   Attachment,
+  DraftExpenseCompletePayload,
+  DraftExpenseCreatePayload,
   Expense,
+  ExpenseAllocationCreatePayload,
+  ExpenseAttachmentLinkPayload,
   ExpenseCreatePayload,
   ExpenseItemCreatePayload,
   ExportPreview,
+  InvoicePoolItem,
   LedgerRow,
   User
 } from "../types";
@@ -77,8 +82,40 @@ export async function listExpenses(): Promise<Expense[]> {
   return request("/expenses");
 }
 
+export async function listInvoicePool(): Promise<InvoicePoolItem[]> {
+  return request("/invoice-pool");
+}
+
+export async function createExpenseAllocation(payload: ExpenseAllocationCreatePayload): Promise<Expense> {
+  return request("/expense-allocations", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function linkExpenseAttachments(id: number, payload: ExpenseAttachmentLinkPayload): Promise<Expense> {
+  return request(`/expenses/${id}/attachments`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function createExpense(payload: ExpenseCreatePayload): Promise<Expense> {
   return request("/expenses", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function createExpenseDraft(payload: DraftExpenseCreatePayload): Promise<Expense> {
+  return request("/expenses/drafts", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function completeExpenseDraft(id: number, payload: DraftExpenseCompletePayload): Promise<Expense> {
+  return request(`/expenses/drafts/${id}/complete`, {
     method: "POST",
     body: JSON.stringify(payload)
   });
@@ -107,6 +144,21 @@ export async function uploadAttachments(files: File[]): Promise<Attachment[]> {
     method: "POST",
     body
   });
+}
+
+export async function getAttachmentObjectUrl(id: number): Promise<{ url: string; contentType: string }> {
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/attachments/${id}/content`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  });
+  if (!response.ok) {
+    throw new ApiError("附件预览失败", response.status);
+  }
+  const blob = await response.blob();
+  return {
+    url: URL.createObjectURL(blob),
+    contentType: blob.type
+  };
 }
 
 export async function listLedger(filters: Record<string, string>): Promise<LedgerRow[]> {

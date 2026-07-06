@@ -66,5 +66,73 @@ textarea {
   .status-pill {
     @apply inline-flex h-6 items-center rounded-full px-2 text-xs font-medium;
   }
+
+  .action-banner {
+    @apply flex items-start gap-3 rounded-lg border px-4 py-3 text-sm;
+  }
+
+  .action-banner-info {
+    @apply action-banner border-teal-200 bg-teal-50 text-teal-900;
+  }
+
+  .action-banner-warn {
+    @apply action-banner border-amber-200 bg-amber-50 text-amber-900;
+  }
+
+  .action-banner-success {
+    @apply action-banner border-teal-200 bg-teal-50 text-teal-800;
+  }
+
+  .guide-hint {
+    @apply flex items-center gap-2 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600;
+  }
+
+  .empty-state {
+    @apply flex flex-col items-center justify-center gap-3 px-5 py-14 text-center;
+  }
+
+  .empty-state-icon {
+    @apply grid h-14 w-14 place-items-center rounded-full bg-slate-100 text-slate-400;
+  }
+
+  .nav-badge {
+    @apply ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800;
+  }
+
+  .match-flow {
+    @apply flex flex-col items-center gap-5 p-6 lg:flex-row lg:items-start lg:gap-0;
+  }
+
+  .match-node {
+    @apply flex w-48 shrink-0 flex-col items-center gap-2 text-center;
+  }
+
+  .match-bullet {
+    @apply grid h-14 w-14 place-items-center rounded-full border-2 transition;
+  }
+
+  .match-bullet-empty {
+    @apply match-bullet border-dashed border-slate-300 bg-slate-50 text-slate-400;
+  }
+
+  .match-bullet-selected {
+    @apply match-bullet border-teal-600 bg-teal-50 text-teal-700;
+  }
+
+  .match-connector {
+    @apply relative mx-2 hidden h-20 w-12 items-center lg:flex;
+  }
+
+  .match-connector-line {
+    @apply absolute inset-x-0 top-1/2 h-px bg-slate-300;
+  }
+
+  .match-connector-active {
+    @apply match-connector-line bg-teal-400;
+  }
+
+  .match-center {
+    @apply flex w-64 shrink-0 flex-col gap-3 lg:w-72;
+  }
 }
 

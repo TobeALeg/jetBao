@@ -6,6 +6,8 @@ import type { User, ViewKey } from "../types";
 const props = defineProps<{
   user: User;
   currentView: ViewKey;
+  draftCount: number;
+  pendingOcrCount: number;
 }>();
 
 defineEmits<{
@@ -21,7 +23,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { key: "my-expenses", label: "我的报销", icon: ReceiptText },
-  { key: "new-expense", label: "新建报销", icon: FilePlus2 },
+  { key: "new-expense", label: "报销整理", icon: FilePlus2 },
   { key: "admin-ledger", label: "管理后台", icon: ShieldCheck, adminOnly: true },
   { key: "admin-users", label: "员工管理", icon: Users, adminOnly: true },
   { key: "export", label: "导出", icon: Download, adminOnly: true }
@@ -29,6 +31,12 @@ const navItems: NavItem[] = [
 
 function visible(item: NavItem) {
   return !item.adminOnly || props.user.role === "admin";
+}
+
+function badgeFor(key: ViewKey): number {
+  if (key === "my-expenses") return props.draftCount;
+  if (key === "new-expense") return props.draftCount + props.pendingOcrCount;
+  return 0;
 }
 </script>
 
@@ -55,6 +63,7 @@ function visible(item: NavItem) {
       >
         <component :is="item.icon" class="h-4 w-4" />
         <span>{{ item.label }}</span>
+        <span v-if="badgeFor(item.key)" class="nav-badge">{{ badgeFor(item.key) }}</span>
       </button>
     </nav>
   </aside>

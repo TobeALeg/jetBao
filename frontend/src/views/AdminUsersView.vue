@@ -135,7 +135,16 @@ onMounted(load);
 
       <div v-if="loading" class="px-5 py-12 text-center text-sm text-slate-500">正在加载...</div>
       <div v-else class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-slate-200 text-left text-sm">
+        <div v-if="!users.length" class="empty-state">
+          <div class="empty-state-icon">
+            <UserPlus class="h-6 w-6" />
+          </div>
+          <div>
+            <div class="text-sm font-medium text-slate-700">还没有员工账号</div>
+            <div class="mt-1 text-xs text-slate-500">在上方表单创建第一个员工账号。</div>
+          </div>
+        </div>
+        <table v-else class="min-w-full divide-y divide-slate-200 text-left text-sm">
           <thead class="bg-slate-50 text-xs font-medium uppercase tracking-normal text-slate-500">
             <tr>
               <th class="px-5 py-3">账号</th>

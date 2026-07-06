@@ -6,6 +6,8 @@ import type { User, ViewKey } from "../types";
 defineProps<{
   user: User;
   currentView: ViewKey;
+  draftCount: number;
+  pendingOcrCount: number;
 }>();
 
 defineEmits<{
@@ -17,7 +19,13 @@ defineEmits<{
 <template>
   <div class="min-h-screen bg-stone-50 text-ink">
     <div class="flex min-h-screen flex-col lg:flex-row">
-      <SidebarNav :user="user" :current-view="currentView" @change-view="$emit('change-view', $event)" />
+      <SidebarNav
+        :user="user"
+        :current-view="currentView"
+        :draft-count="draftCount"
+        :pending-ocr-count="pendingOcrCount"
+        @change-view="$emit('change-view', $event)"
+      />
       <div class="flex min-w-0 flex-1 flex-col">
         <Topbar :user="user" @logout="$emit('logout')" />
         <main class="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">
