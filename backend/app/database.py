@@ -105,6 +105,7 @@ class Database:
             self._migrate(connection)
             if seed_demo_users:
                 self._seed_demo_users(connection)
+            self._ensure_admin_users(connection)
 
     def _migrate(self, connection: sqlite3.Connection) -> None:
         self._add_column_if_missing(connection, "users", "is_active", "INTEGER NOT NULL DEFAULT 1")
@@ -198,6 +199,16 @@ class Database:
             """
         )
 
+    def _ensure_admin_users(self, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            UPDATE users
+            SET role = 'admin'
+            WHERE lower(username) IN ('dandi', 'ouyang')
+               OR employee_name IN ('艾丹迪', 'Dandi', '欧阳')
+            """
+        )
+
     def _add_column_if_missing(self, connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
         columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
         if column not in columns:
@@ -211,6 +222,8 @@ class Database:
             ("admin", "admin123", "admin", "财务管理员", "上海示例科技有限公司"),
             ("alice", "alice123", "employee", "Alice Chen", "上海示例科技有限公司"),
             ("bob", "bob123", "employee", "Bob Li", "杭州示例信息有限公司"),
+            ("Dandi", "dandi123", "admin", "艾丹迪", "上海山途远智信息科技有限公司"),
+            ("Ouyang", "ouyang123", "admin", "欧阳", "上海山途远智信息科技有限公司"),
         ]
         connection.executemany(
             """

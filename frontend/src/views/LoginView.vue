@@ -84,11 +84,10 @@ async function submit() {
           </form>
 
           <div class="mt-6 rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
-            演示账号：admin / admin123，alice / alice123，bob / bob123
+            演示账号：admin / admin123，Dandi / dandi123，Ouyang / ouyang123，alice / alice123
           </div>
         </section>
       </div>
     </div>
   </main>
 </template>
-

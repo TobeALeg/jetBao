@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import SidebarNav from "./SidebarNav.vue";
 import Topbar from "./Topbar.vue";
-import type { User, ViewKey } from "../types";
+import type { User, ViewKey, WorkspaceMode } from "../types";
 
 defineProps<{
   user: User;
   currentView: ViewKey;
+  workspaceMode: WorkspaceMode;
   draftCount: number;
   pendingOcrCount: number;
 }>();
 
 defineEmits<{
   "change-view": [view: ViewKey];
+  "change-workspace-mode": [mode: WorkspaceMode];
   logout: [];
 }>();
 </script>
@@ -22,12 +24,14 @@ defineEmits<{
       <SidebarNav
         :user="user"
         :current-view="currentView"
+        :workspace-mode="workspaceMode"
         :draft-count="draftCount"
         :pending-ocr-count="pendingOcrCount"
         @change-view="$emit('change-view', $event)"
+        @change-workspace-mode="$emit('change-workspace-mode', $event)"
       />
       <div class="flex min-w-0 flex-1 flex-col">
-        <Topbar :user="user" @logout="$emit('logout')" />
+        <Topbar :user="user" :workspace-mode="workspaceMode" @logout="$emit('logout')" />
         <main class="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">
           <slot />
         </main>
@@ -35,4 +39,3 @@ defineEmits<{
     </div>
   </div>
 </template>
-

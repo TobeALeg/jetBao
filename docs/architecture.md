@@ -11,6 +11,7 @@
 - `expense_invoice_allocations`：发票条目和花费项目之间的归属关系；同一发票条目只能归属一条花费。
 - 员工接口只读写当前用户自己的 `expenses`。
 - 管理员接口通过台账查询所有人的 `expenses`，但不切换身份。
+- `services/export_package.py`：管理员导出服务，从 `expenses`、`expense_attachments`、`expense_invoice_allocations` 生成多 Sheet Excel 和附件 ZIP。
 
 ### data flow
 
@@ -20,7 +21,9 @@
 4. 匹配区：用户为同一条花费选择一张或多张发票，后端写入 `expense_invoice_allocations`；同一发票条目不能再匹配其他花费。
 5. 状态更新：花费项目已匹配票面合计达到实际金额后，后端把 `expenses.status` 更新为 `submitted`；否则保持 `draft`。如果票面合计超过实际金额，必须填写说明并标记为替票。
 6. 管理台账：管理员按月份、公司、员工、类别、状态等条件查询 `expenses`，同时查看交易记录附件和发票匹配摘要。
-7. 导出：后端只导出 `submitted` 记录，同时在预览中返回 matching 条件下的 `draft` 数量。
+7. 导出预览：后端只统计 `submitted` 记录，同时返回 matching 条件下的 `draft` 数量。
+8. 单 Excel 导出：`/api/admin/export.xlsx` 保留轻量台账文件。
+9. 明细包导出：`/api/admin/export-package.zip` 生成 `{月份}报销明细.xlsx` 和 `{月份}报销/{公司}{月份}报销/{员工}{月份}报销/{组ID-报销项-金额}/` 附件目录；交易记录附件来自 `expense_attachments`，发票文件来自 `expense_invoice_allocations`。
 
 ### status flow
 

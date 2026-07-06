@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ClipboardList, Download } from "lucide-vue-next";
+import { Archive, ClipboardList, Download } from "lucide-vue-next";
 import { formatCurrency } from "../utils/format";
 import type { ExportPreview } from "../types";
 
@@ -7,10 +7,12 @@ defineProps<{
   preview: ExportPreview | null;
   loading?: boolean;
   exporting?: boolean;
+  exportingPackage?: boolean;
 }>();
 
 defineEmits<{
   export: [];
+  "export-package": [];
   "show-drafts": [];
 }>();
 </script>
@@ -53,10 +55,26 @@ defineEmits<{
           <ClipboardList class="h-4 w-4" />
           查看待补材料
         </button>
-        <button class="primary-button" type="button" :disabled="exporting || !preview.record_count" @click="$emit('export')">
-          <Download class="h-4 w-4" />
-          {{ exporting ? "正在导出..." : "导出 Excel" }}
-        </button>
+        <div class="flex flex-col gap-2 sm:flex-row">
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="exporting || exportingPackage || !preview.record_count"
+            @click="$emit('export')"
+          >
+            <Download class="h-4 w-4" />
+            {{ exporting ? "正在导出..." : "导出 Excel" }}
+          </button>
+          <button
+            class="primary-button"
+            type="button"
+            :disabled="exporting || exportingPackage || !preview.record_count"
+            @click="$emit('export-package')"
+          >
+            <Archive class="h-4 w-4" />
+            {{ exportingPackage ? "正在打包..." : "导出明细包" }}
+          </button>
+        </div>
       </div>
     </div>
     <div v-else class="empty-state">

@@ -8,7 +8,7 @@ import AdminLedgerView from "./views/AdminLedgerView.vue";
 import AdminUsersView from "./views/AdminUsersView.vue";
 import ExportView from "./views/ExportView.vue";
 import { clearToken, getMe, getToken, listExpenses } from "./services/api";
-import type { Expense, User, ViewKey } from "./types";
+import type { Expense, User, ViewKey, WorkspaceMode } from "./types";
 
 const user = ref<User | null>(null);
 const currentView = ref<ViewKey>("my-expenses");
@@ -21,6 +21,10 @@ const allExpenses = ref<Expense[]>([]);
 const draftCount = computed(() => allExpenses.value.filter((e) => e.status === "draft").length);
 const pendingOcrCount = computed(() =>
   allExpenses.value.reduce((sum, e) => sum + e.attachments.filter((f) => f.ocr_status !== "success").length, 0)
+);
+const adminViews = new Set<ViewKey>(["admin-ledger", "admin-users", "export"]);
+const workspaceMode = computed<WorkspaceMode>(() =>
+  user.value?.role === "admin" && adminViews.has(currentView.value) ? "admin" : "personal"
 );
 
 async function loadExpenses() {
@@ -72,7 +76,14 @@ function handleSubmitted() {
 }
 
 function handleChangeView(view: ViewKey) {
+  if (adminViews.has(view) && user.value?.role !== "admin") return;
   currentView.value = view;
+  adminLedgerStatus.value = null;
+}
+
+function handleChangeWorkspaceMode(mode: WorkspaceMode) {
+  if (mode === "admin" && user.value?.role !== "admin") return;
+  currentView.value = mode === "admin" ? "admin-ledger" : "my-expenses";
   adminLedgerStatus.value = null;
 }
 
@@ -101,9 +112,11 @@ watch(refreshKey, loadExpenses);
     v-else
     :user="user"
     :current-view="currentView"
+    :workspace-mode="workspaceMode"
     :draft-count="draftCount"
     :pending-ocr-count="pendingOcrCount"
     @change-view="handleChangeView"
+    @change-workspace-mode="handleChangeWorkspaceMode"
     @logout="handleLogout"
   >
     <MyExpensesView

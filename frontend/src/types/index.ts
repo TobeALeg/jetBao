@@ -2,6 +2,8 @@ export type Role = "employee" | "admin";
 
 export type ViewKey = "my-expenses" | "new-expense" | "admin-ledger" | "admin-users" | "export";
 
+export type WorkspaceMode = "personal" | "admin";
+
 export type ExpenseStatus = "draft" | "submitted";
 
 export interface User {

@@ -208,6 +208,33 @@ export async function downloadExport(filters: Record<string, string>): Promise<v
   URL.revokeObjectURL(url);
 }
 
+export async function downloadExportPackage(filters: Record<string, string>): Promise<void> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/admin/export-package.zip?${params.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  });
+  if (!response.ok) {
+    throw new ApiError("导出明细包失败", response.status);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${exportMonthLabel(filters.month)}报销明细包.zip`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportMonthLabel(month: string | undefined): string {
+  if (!month) return "全部";
+  const match = month.match(/^\d{4}-(\d{2})$/);
+  return match ? `${Number(match[1])}月` : month;
+}
+
 export async function listUsers(): Promise<AdminUser[]> {
   return request("/admin/users");
 }

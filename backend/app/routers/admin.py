@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -9,6 +10,7 @@ from openpyxl import Workbook
 from app.dependencies import require_admin
 from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExportPreview, LedgerRow
 from app.security import hash_password
+from app.services.export_package import build_export_package
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -220,6 +222,23 @@ def export_excel(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export-package.zip")
+def export_package(
+    request: Request,
+    month: str | None = None,
+    company_entity: str | None = None,
+    admin=Depends(require_admin),
+) -> StreamingResponse:
+    with request.app.state.db.connect() as connection:
+        output, filename = build_export_package(connection, month, company_entity)
+    encoded_filename = quote(filename)
+    return StreamingResponse(
+        output,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"},
     )
 
 

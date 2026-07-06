@@ -3,9 +3,12 @@ from __future__ import annotations
 import importlib
 import json
 import sys
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -45,6 +48,9 @@ def upload_file(
 
 
 def insert_ocr_attachment(client: TestClient, user_id: int, invoice_items: list[dict], filename: str = "ocr.pdf") -> int:
+    stored_path = client.app.state.settings.upload_dir / filename
+    stored_path.parent.mkdir(parents=True, exist_ok=True)
+    stored_path.write_bytes(f"test file for {filename}".encode())
     with client.app.state.db.connect() as connection:
         cursor = connection.execute(
             """
@@ -57,13 +63,27 @@ def insert_ocr_attachment(client: TestClient, user_id: int, invoice_items: list[
             (
                 user_id,
                 filename,
-                str(client.app.state.settings.upload_dir / filename),
+                str(stored_path),
                 f"hash-{filename}",
-                100,
+                stored_path.stat().st_size,
                 json.dumps({"invoice_items": invoice_items}, ensure_ascii=False),
             ),
         )
         return int(cursor.lastrowid)
+
+
+def test_dandi_and_ouyang_are_seeded_as_admins(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+
+    for username, password, employee_name in (
+        ("Dandi", "dandi123", "艾丹迪"),
+        ("Ouyang", "ouyang123", "欧阳"),
+    ):
+        headers = auth_headers(client, username, password)
+        me = client.get("/api/me", headers=headers)
+        assert me.status_code == 200
+        assert me.json()["role"] == "admin"
+        assert me.json()["employee_name"] == employee_name
 
 
 def test_employee_can_create_expense_and_only_see_own_records(tmp_path, monkeypatch):
@@ -206,6 +226,119 @@ def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
     assert export.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+
+def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    alice = auth_headers(client, "alice", "alice123")
+    admin = auth_headers(client, "admin", "admin123")
+
+    payment = upload_file(client, alice, "payment.png", b"payment-image", "image/png")
+    assert payment.status_code == 200
+    first_invoice_id = insert_ocr_attachment(
+        client,
+        user_id=2,
+        invoice_items=[
+            {
+                "buyer": "上海示例科技有限公司",
+                "seller_name": "上海出租车公司",
+                "item_name": "出租车费",
+                "amount": 120,
+                "invoice_number": "INV-A",
+                "date": "2026-05-21",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="invoice-a.pdf",
+    )
+    second_invoice_id = insert_ocr_attachment(
+        client,
+        user_id=2,
+        invoice_items=[
+            {
+                "buyer": "上海示例科技有限公司",
+                "seller_name": "上海酒店",
+                "item_name": "住宿费",
+                "amount": 300,
+                "invoice_number": "INV-B",
+                "date": "2026-05-22",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="invoice-b.pdf",
+    )
+
+    draft = client.post(
+        "/api/expenses/drafts",
+        headers=alice,
+        json={
+            "project_name": "客户拜访差旅",
+            "actual_amount": 420,
+            "expense_month": "2026-05",
+            "category": "差旅交通",
+        },
+    )
+    assert draft.status_code == 200
+    link = client.post(
+        f"/api/expenses/{draft.json()['id']}/attachments",
+        headers=alice,
+        json={"attachment_ids": [payment.json()["id"]]},
+    )
+    assert link.status_code == 200
+    match = client.post(
+        "/api/expense-allocations/batch",
+        headers=alice,
+        json={
+            "expense_id": draft.json()["id"],
+            "invoices": [
+                {"attachment_id": first_invoice_id, "invoice_item_index": 0},
+                {"attachment_id": second_invoice_id, "invoice_item_index": 0},
+            ],
+            "note": "",
+        },
+    )
+    assert match.status_code == 200
+
+    package = client.get("/api/admin/export-package.zip?month=2026-05", headers=admin)
+    assert package.status_code == 200
+    assert package.headers["content-type"].startswith("application/zip")
+
+    archive = zipfile.ZipFile(BytesIO(package.content))
+    names = archive.namelist()
+    assert "5月报销明细.xlsx" in names
+    assert any(name.endswith("/交易记录/交易记录-payment.png") for name in names)
+    assert any(name.endswith("/发票/INV-A-invoice-a.pdf") for name in names)
+    assert any(name.endswith("/发票/INV-B-invoice-b.pdf") for name in names)
+
+    workbook = load_workbook(BytesIO(archive.read("5月报销明细.xlsx")))
+    assert workbook.sheetnames == ["总览", "报销项汇总", "发票明细", "附件与待核对"]
+    summary = workbook["报销项汇总"]
+    assert [cell.value for cell in summary[1]] == [
+        "组ID",
+        "公司主体",
+        "购买方名称",
+        "人员",
+        "报销项",
+        "票据状态",
+        "发票张数",
+        "票面金额合计",
+        "本次报销金额",
+        "票面-报销差异",
+        "附件数",
+        "备注",
+    ]
+    assert summary["E2"].value == "客户拜访差旅"
+    assert summary["F2"].value == "已匹配"
+    assert summary["G2"].value == 2
+    assert summary["H2"].value == 420
+    assert summary["I2"].value == 420
+
+    invoice_sheet = workbook["发票明细"]
+    assert invoice_sheet.max_row == 3
+    assert {invoice_sheet["G2"].value, invoice_sheet["G3"].value} == {"INV-A", "INV-B"}
+    attachments_sheet = workbook["附件与待核对"]
+    assert attachments_sheet["D2"].value == "交易记录"
+    assert attachments_sheet["E2"].value == "payment.png"
 
 
 def test_employee_can_create_draft_and_complete_it_with_invoice_item(tmp_path, monkeypatch):

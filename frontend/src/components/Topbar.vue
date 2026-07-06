@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { LogOut } from "lucide-vue-next";
-import type { User } from "../types";
+import type { User, WorkspaceMode } from "../types";
 
 defineProps<{
   user: User;
+  workspaceMode: WorkspaceMode;
 }>();
 
 defineEmits<{
@@ -15,7 +16,9 @@ defineEmits<{
   <header class="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 lg:px-8">
     <div class="min-w-0">
       <div class="truncate text-sm font-medium text-ink">{{ user.company_entity }}</div>
-      <div class="text-xs text-slate-500">{{ user.role === "admin" ? "管理员" : "员工" }}</div>
+      <div class="text-xs text-slate-500">
+        {{ user.role === "admin" ? (workspaceMode === "admin" ? "管理员 · 管理区" : "管理员 · 个人区") : "员工" }}
+      </div>
     </div>
     <div class="flex items-center gap-3">
       <div class="hidden text-right sm:block">
@@ -29,4 +32,3 @@ defineEmits<{
     </div>
   </header>
 </template>
-

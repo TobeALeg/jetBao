@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import ExportPreviewPanel from "../components/ExportPreview.vue";
-import { downloadExport, getExportPreview } from "../services/api";
+import { downloadExport, downloadExportPackage, getExportPreview } from "../services/api";
 import { currentMonth } from "../utils/format";
 import type { ExportPreview } from "../types";
 
@@ -17,6 +17,7 @@ const filters = ref<Record<string, string>>({
 const preview = ref<ExportPreview | null>(null);
 const loading = ref(false);
 const exporting = ref(false);
+const exportingPackage = ref(false);
 const error = ref("");
 
 async function loadPreview() {
@@ -43,6 +44,18 @@ async function exportFile() {
   }
 }
 
+async function exportPackage() {
+  exportingPackage.value = true;
+  error.value = "";
+  try {
+    await downloadExportPackage(filters.value);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "导出明细包失败";
+  } finally {
+    exportingPackage.value = false;
+  }
+}
+
 onMounted(loadPreview);
 </script>
 
@@ -50,7 +63,7 @@ onMounted(loadPreview);
   <div class="mx-auto max-w-4xl space-y-5">
     <div>
       <h1 class="page-title">导出</h1>
-      <p class="muted mt-1">选择月份和公司主体后导出 Excel 台账。</p>
+      <p class="muted mt-1">选择月份和公司主体后导出台账或完整附件包。</p>
     </div>
 
     <div class="guide-hint">
@@ -85,7 +98,9 @@ onMounted(loadPreview);
       :preview="preview"
       :loading="loading"
       :exporting="exporting"
+      :exporting-package="exportingPackage"
       @export="exportFile"
+      @export-package="exportPackage"
       @show-drafts="$emit('show-drafts')"
     />
   </div>
