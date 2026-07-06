@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.dependencies import get_current_user
 from app.schemas import (
     AttachmentResponse,
+    ExpenseAllocationBatchCreateRequest,
     DraftExpenseCompleteRequest,
     DraftExpenseCreateRequest,
     ExpenseAllocationCreateRequest,
@@ -91,6 +92,18 @@ def _allocated_amount_for_invoice_item(connection: sqlite3.Connection, attachmen
         (attachment_id, invoice_item_index),
     ).fetchone()
     return round(float(row["allocated_amount"]), 2)
+
+
+def _invoice_item_allocation_owner(connection: sqlite3.Connection, attachment_id: int, invoice_item_index: int) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT expense_id
+        FROM expense_invoice_allocations
+        WHERE attachment_id = ? AND invoice_item_index = ?
+        LIMIT 1
+        """,
+        (attachment_id, invoice_item_index),
+    ).fetchone()
 
 
 def serialize_expense(expense, attachments, allocations: list[sqlite3.Row] | None = None) -> ExpenseResponse:
@@ -271,18 +284,25 @@ def _sync_expense_after_allocation(connection: sqlite3.Connection, expense_id: i
     if expense is None:
         return
     allocated_amount = _allocated_amount_for_expense(connection, expense_id)
-    is_complete = allocated_amount >= round(float(expense["actual_amount"]), 2)
+    actual_amount = round(float(expense["actual_amount"]), 2)
+    is_complete = allocated_amount >= actual_amount
+    is_mismatch = is_complete and allocated_amount != actual_amount
     connection.execute(
         """
         UPDATE expenses
         SET
             invoice_amount = ?,
-            is_substitute = CASE WHEN ? THEN is_substitute ELSE 1 END,
+            is_substitute = CASE
+                WHEN ? THEN 1
+                WHEN ? THEN 0
+                ELSE is_substitute
+            END,
             status = ?
         WHERE id = ?
         """,
         (
             allocated_amount if allocated_amount else None,
+            int(is_mismatch),
             int(is_complete),
             "submitted" if is_complete else "draft",
             expense_id,
@@ -296,18 +316,18 @@ def _create_allocation(
     attachment: sqlite3.Row,
     invoice_item: dict[str, Any],
     invoice_item_index: int,
-    allocated_amount: float,
     note: str,
+    sync: bool = True,
 ) -> None:
     invoice_amount = _invoice_amount(invoice_item)
-    existing_invoice_allocated = _allocated_amount_for_invoice_item(connection, attachment["id"], invoice_item_index)
-    if round(existing_invoice_allocated + allocated_amount, 2) > invoice_amount:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="发票分摊金额不能超过票面金额")
+    if _invoice_item_allocation_owner(connection, attachment["id"], invoice_item_index) is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="这张发票已经匹配到报销项目")
 
     existing_expense_allocated = _allocated_amount_for_expense(connection, expense["id"])
     expense_total = round(float(expense["actual_amount"]), 2)
-    if round(existing_expense_allocated + allocated_amount, 2) > expense_total:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="分摊金额不能超过报销金额")
+    next_expense_allocated = round(existing_expense_allocated + invoice_amount, 2)
+    if next_expense_allocated > expense_total and not note.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="票面合计与花费金额不一致时必须填写说明")
 
     try:
         connection.execute(
@@ -324,7 +344,7 @@ def _create_allocation(
                 attachment["id"],
                 invoice_item_index,
                 invoice_amount,
-                round(float(allocated_amount), 2),
+                invoice_amount,
                 _invoice_text(invoice_item, "buyer"),
                 _invoice_text(invoice_item, "invoice_number"),
                 _invoice_text(invoice_item, "date"),
@@ -333,7 +353,7 @@ def _create_allocation(
             ),
         )
     except sqlite3.IntegrityError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="这张发票已经分摊给该报销记录")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="这张发票已经匹配到报销项目")
 
     connection.execute(
         """
@@ -358,7 +378,8 @@ def _create_allocation(
             expense["id"],
         ),
     )
-    _sync_expense_after_allocation(connection, expense["id"])
+    if sync:
+        _sync_expense_after_allocation(connection, expense["id"])
 
 
 @router.get("/expenses", response_model=list[ExpenseResponse])
@@ -463,9 +484,57 @@ def create_expense_allocation(
             attachment,
             invoice_item,
             payload.invoice_item_index,
-            round(float(payload.allocated_amount), 2),
             payload.note,
         )
+        updated, linked_attachments, allocations = _load_expense(connection, payload.expense_id)
+    return serialize_expense(updated, linked_attachments, allocations)
+
+
+@router.post("/expense-allocations/batch", response_model=ExpenseResponse)
+def create_expense_allocations_batch(
+    payload: ExpenseAllocationBatchCreateRequest,
+    request: Request,
+    user=Depends(get_current_user),
+) -> ExpenseResponse:
+    refs = list({(item.attachment_id, item.invoice_item_index): item for item in payload.invoices}.values())
+    with request.app.state.db.connect() as connection:
+        expense = connection.execute(
+            "SELECT * FROM expenses WHERE id = ? AND user_id = ?",
+            (payload.expense_id, user["id"]),
+        ).fetchone()
+        if expense is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="报销记录不存在")
+
+        invoice_rows: list[tuple[sqlite3.Row, dict[str, Any], int]] = []
+        for ref in refs:
+            attachment = connection.execute(
+                "SELECT * FROM attachments WHERE id = ? AND user_id = ?",
+                (ref.attachment_id, user["id"]),
+            ).fetchone()
+            if attachment is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="附件不存在")
+            invoice_item = _invoice_item_from_attachment(attachment, ref.invoice_item_index)
+            _validate_invoice_item(invoice_item, user["company_entity"])
+            invoice_rows.append((attachment, invoice_item, ref.invoice_item_index))
+
+        existing_total = _allocated_amount_for_expense(connection, expense["id"])
+        selected_total = round(sum(_invoice_amount(item) for _, item, _ in invoice_rows), 2)
+        next_total = round(existing_total + selected_total, 2)
+        actual_amount = round(float(expense["actual_amount"]), 2)
+        if next_total > actual_amount and not payload.note.strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="票面合计与花费金额不一致时必须填写说明")
+
+        for attachment, invoice_item, invoice_item_index in invoice_rows:
+            _create_allocation(
+                connection,
+                expense,
+                attachment,
+                invoice_item,
+                invoice_item_index,
+                payload.note,
+                sync=False,
+            )
+        _sync_expense_after_allocation(connection, expense["id"])
         updated, linked_attachments, allocations = _load_expense(connection, payload.expense_id)
     return serialize_expense(updated, linked_attachments, allocations)
 
@@ -602,7 +671,8 @@ def complete_expense_draft(
         invoice_amount = _invoice_amount(invoice_item)
         actual_amount = round(float(payload.actual_amount), 2)
         reason = payload.substitute_reason.strip()
-        _validate_amount_reason(payload.is_substitute, actual_amount, invoice_amount, reason)
+        is_substitute = payload.is_substitute or round(actual_amount, 2) != round(invoice_amount, 2)
+        _validate_amount_reason(is_substitute, actual_amount, invoice_amount, reason)
 
         connection.execute(
             """
@@ -622,7 +692,7 @@ def complete_expense_draft(
                 payload.category.strip(),
                 payload.expense_month,
                 actual_amount,
-                int(payload.is_substitute),
+                int(is_substitute),
                 reason,
                 payload.note.strip() or draft["note"],
                 int(attachment["duplicate_count"] > 0),
@@ -636,7 +706,6 @@ def complete_expense_draft(
             attachment,
             invoice_item,
             payload.invoice_item_index,
-            actual_amount,
             reason,
         )
         expense, linked_attachments, allocations = _load_expense(connection, expense_id)
@@ -721,7 +790,6 @@ def create_expenses_batch(
                 attachment,
                 invoice_item,
                 item_payload.invoice_item_index,
-                actual_amount,
                 reason,
             )
 

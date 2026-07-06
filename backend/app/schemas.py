@@ -69,7 +69,18 @@ class ExpenseAllocationCreateRequest(BaseModel):
     expense_id: int
     attachment_id: int
     invoice_item_index: int = Field(ge=0)
-    allocated_amount: float = Field(gt=0)
+    allocated_amount: float | None = Field(default=None, gt=0)
+    note: str = ""
+
+
+class ExpenseInvoiceReference(BaseModel):
+    attachment_id: int
+    invoice_item_index: int = Field(ge=0)
+
+
+class ExpenseAllocationBatchCreateRequest(BaseModel):
+    expense_id: int
+    invoices: list[ExpenseInvoiceReference] = Field(min_length=1)
     note: str = ""
 
 

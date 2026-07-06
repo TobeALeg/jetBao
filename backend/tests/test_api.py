@@ -266,79 +266,97 @@ def test_employee_can_create_draft_and_complete_it_with_invoice_item(tmp_path, m
     assert completed["allocations"][0]["attachment_id"] == attachment_id
 
 
-def test_one_invoice_item_can_allocate_to_multiple_expenses(tmp_path, monkeypatch):
+def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     alice = auth_headers(client, "alice", "alice123")
-    attachment_id = insert_ocr_attachment(
+    first_attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
         invoice_items=[
             {
                 "buyer": "上海示例科技有限公司",
-                "amount": 500,
-                "invoice_number": "BIG-1",
+                "amount": 120,
+                "invoice_number": "INV-1",
                 "date": "2026-05-21",
                 "sub_type_description": "电子普通发票",
             }
         ],
-        filename="big-invoice.pdf",
+        filename="first-invoice.pdf",
+    )
+    second_attachment_id = insert_ocr_attachment(
+        client,
+        user_id=2,
+        invoice_items=[
+            {
+                "buyer": "上海示例科技有限公司",
+                "amount": 300,
+                "invoice_number": "INV-2",
+                "date": "2026-05-22",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="second-invoice.pdf",
     )
 
-    first = client.post(
+    expense = client.post(
         "/api/expenses/drafts",
         headers=alice,
         json={
-            "project_name": "客户拜访打车",
-            "actual_amount": 120,
+            "project_name": "客户拜访差旅",
+            "actual_amount": 420,
             "expense_month": "2026-05",
             "category": "差旅交通",
         },
     ).json()
-    second = client.post(
+
+    match = client.post(
+        "/api/expense-allocations/batch",
+        headers=alice,
+        json={
+            "expense_id": expense["id"],
+            "invoices": [
+                {"attachment_id": first_attachment_id, "invoice_item_index": 0},
+                {"attachment_id": second_attachment_id, "invoice_item_index": 0},
+            ],
+            "note": "",
+        },
+    )
+    assert match.status_code == 200
+    matched = match.json()
+    assert matched["status"] == "submitted"
+    assert matched["invoice_amount"] == 420
+    assert len(matched["allocations"]) == 2
+
+    other_expense = client.post(
         "/api/expenses/drafts",
         headers=alice,
         json={
             "project_name": "AI 工具订阅",
-            "actual_amount": 300,
+            "actual_amount": 120,
             "expense_month": "2026-05",
             "category": "AI 项目",
         },
     ).json()
-
-    allocate_first = client.post(
+    duplicate_match = client.post(
         "/api/expense-allocations",
         headers=alice,
         json={
-            "expense_id": first["id"],
-            "attachment_id": attachment_id,
+            "expense_id": other_expense["id"],
+            "attachment_id": first_attachment_id,
             "invoice_item_index": 0,
-            "allocated_amount": 120,
             "note": "",
         },
     )
-    assert allocate_first.status_code == 200
-    assert allocate_first.json()["status"] == "submitted"
-
-    allocate_second = client.post(
-        "/api/expense-allocations",
-        headers=alice,
-        json={
-            "expense_id": second["id"],
-            "attachment_id": attachment_id,
-            "invoice_item_index": 0,
-            "allocated_amount": 300,
-            "note": "",
-        },
-    )
-    assert allocate_second.status_code == 200
-    assert allocate_second.json()["status"] == "submitted"
+    assert duplicate_match.status_code == 400
+    assert "已经匹配" in duplicate_match.json()["detail"]
 
     pool = client.get("/api/invoice-pool", headers=alice)
     assert pool.status_code == 200
-    item = pool.json()[0]
-    assert item["invoice_amount"] == 500
-    assert item["allocated_amount"] == 420
-    assert item["remaining_amount"] == 80
+    by_attachment = {item["attachment_id"]: item for item in pool.json()}
+    assert by_attachment[first_attachment_id]["allocated_amount"] == 120
+    assert by_attachment[first_attachment_id]["remaining_amount"] == 0
+    assert by_attachment[second_attachment_id]["allocated_amount"] == 300
+    assert by_attachment[second_attachment_id]["remaining_amount"] == 0
 
 
 def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, monkeypatch):
@@ -392,6 +410,63 @@ def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, mon
     pool = client.get("/api/invoice-pool", headers=alice)
     assert pool.status_code == 200
     assert all(item["attachment_id"] != invoice_like_attachment_id for item in pool.json())
+
+
+def test_invoice_match_requires_reason_when_invoice_total_exceeds_expense(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    alice = auth_headers(client, "alice", "alice123")
+    attachment_id = insert_ocr_attachment(
+        client,
+        user_id=2,
+        invoice_items=[
+            {
+                "buyer": "上海示例科技有限公司",
+                "amount": 120,
+                "invoice_number": "OVER-1",
+                "date": "2026-05-23",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="over-invoice.pdf",
+    )
+
+    draft = client.post(
+        "/api/expenses/drafts",
+        headers=alice,
+        json={
+            "project_name": "市场物料垫付",
+            "actual_amount": 100,
+            "expense_month": "2026-05",
+            "category": "市场活动",
+        },
+    ).json()
+
+    no_reason = client.post(
+        "/api/expense-allocations/batch",
+        headers=alice,
+        json={
+            "expense_id": draft["id"],
+            "invoices": [{"attachment_id": attachment_id, "invoice_item_index": 0}],
+            "note": "",
+        },
+    )
+    assert no_reason.status_code == 400
+    assert "说明" in no_reason.json()["detail"]
+
+    with_reason = client.post(
+        "/api/expense-allocations/batch",
+        headers=alice,
+        json={
+            "expense_id": draft["id"],
+            "invoices": [{"attachment_id": attachment_id, "invoice_item_index": 0}],
+            "note": "用同项目大额发票替票",
+        },
+    )
+    assert with_reason.status_code == 200
+    body = with_reason.json()
+    assert body["status"] == "submitted"
+    assert body["is_substitute"] is True
+    assert body["substitute_reason"] == "用同项目大额发票替票"
 
 
 def test_draft_completion_requires_reason_when_amount_mismatches_invoice(tmp_path, monkeypatch):

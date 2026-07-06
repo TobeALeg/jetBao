@@ -6,6 +6,7 @@ import type {
   DraftExpenseCompletePayload,
   DraftExpenseCreatePayload,
   Expense,
+  ExpenseAllocationBatchCreatePayload,
   ExpenseAllocationCreatePayload,
   ExpenseAttachmentLinkPayload,
   ExpenseCreatePayload,
@@ -88,6 +89,13 @@ export async function listInvoicePool(): Promise<InvoicePoolItem[]> {
 
 export async function createExpenseAllocation(payload: ExpenseAllocationCreatePayload): Promise<Expense> {
   return request("/expense-allocations", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function createExpenseAllocationsBatch(payload: ExpenseAllocationBatchCreatePayload): Promise<Expense> {
+  return request("/expense-allocations/batch", {
     method: "POST",
     body: JSON.stringify(payload)
   });

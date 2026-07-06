@@ -128,7 +128,18 @@ export interface ExpenseAllocationCreatePayload {
   expense_id: number;
   attachment_id: number;
   invoice_item_index: number;
-  allocated_amount: number;
+  allocated_amount?: number;
+  note: string;
+}
+
+export interface ExpenseInvoiceReferencePayload {
+  attachment_id: number;
+  invoice_item_index: number;
+}
+
+export interface ExpenseAllocationBatchCreatePayload {
+  expense_id: number;
+  invoices: ExpenseInvoiceReferencePayload[];
   note: string;
 }
 

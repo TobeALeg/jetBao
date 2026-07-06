@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { CheckCircle2, ImagePlus, Link2, Loader2, PlusCircle, ReceiptText } from "lucide-vue-next";
+import { AlertTriangle, CheckCircle2, ImagePlus, Link2, Loader2, PlusCircle, ReceiptText, X } from "lucide-vue-next";
 import AttachmentThumb from "../components/AttachmentThumb.vue";
 import InvoiceUploadPanel from "../components/InvoiceUploadPanel.vue";
 import { DEFAULT_EXPENSE_CATEGORY, EXPENSE_CATEGORIES } from "../constants/expenseCategories";
 import {
-  createExpenseAllocation,
+  createExpenseAllocationsBatch,
   createExpenseDraft,
   linkExpenseAttachments,
   listExpenses,
@@ -37,8 +37,7 @@ const transactionTargetExpenseId = ref<number | null>(null);
 const transactionUploadingExpenseId = ref<number | null>(null);
 
 const selectedExpenseId = ref<number | null>(props.draftExpense?.id ?? null);
-const selectedInvoiceKey = ref("");
-const allocationAmount = ref("");
+const selectedInvoiceKeys = ref<string[]>([]);
 const allocationNote = ref("");
 
 const expenseForm = reactive({
@@ -49,19 +48,51 @@ const expenseForm = reactive({
 });
 
 const selectedExpense = computed(() => expenses.value.find((item) => item.id === selectedExpenseId.value) ?? null);
-const selectedInvoice = computed(() => invoicePool.value.find((item) => invoiceKey(item) === selectedInvoiceKey.value) ?? null);
+const selectedInvoices = computed(() => invoicePool.value.filter((item) => selectedInvoiceKeys.value.includes(invoiceKey(item))));
+const selectedInvoiceTotal = computed(() => selectedInvoices.value.reduce((sum, item) => sum + Number(item.invoice_amount), 0));
+const totalAfterMatch = computed(() => {
+  const expense = selectedExpense.value;
+  if (!expense) return 0;
+  return Number(expense.allocated_amount) + selectedInvoiceTotal.value;
+});
+const matchDifference = computed(() => {
+  const expense = selectedExpense.value;
+  if (!expense) return 0;
+  return totalAfterMatch.value - Number(expense.actual_amount);
+});
+const remainingAfterMatch = computed(() => Math.max(Math.abs(matchDifference.value), 0));
+const matchProgress = computed(() => {
+  const expense = selectedExpense.value;
+  if (!expense || Number(expense.actual_amount) <= 0) return 0;
+  return Math.min((totalAfterMatch.value / Number(expense.actual_amount)) * 100, 100);
+});
+const needsMismatchNote = computed(() => matchDifference.value > 0);
 const pendingExpenses = computed(() => expenses.value.filter((item) => item.remaining_amount > 0 || item.status === "draft"));
 const usableInvoices = computed(() => invoicePool.value.filter((item) => item.remaining_amount > 0));
-const matchReady = computed(() => Boolean(selectedExpense.value && selectedInvoice.value && Number(allocationAmount.value) > 0));
+const matchReady = computed(() => Boolean(selectedExpense.value && selectedInvoices.value.length > 0 && (!needsMismatchNote.value || allocationNote.value.trim())));
+const matchStateLabel = computed(() => {
+  if (!selectedExpense.value) return "先选择一条花费";
+  if (!selectedInvoices.value.length) return "再选择发票";
+  if (matchDifference.value > 0) return `超出 ${formatCurrency(remainingAfterMatch.value)}`;
+  if (matchDifference.value < 0) return `还差 ${formatCurrency(remainingAfterMatch.value)}`;
+  return "刚好匹配";
+});
+const matchStateTone = computed(() => {
+  if (!selectedExpense.value || !selectedInvoices.value.length) return "neutral";
+  if (matchDifference.value > 0) return "warning";
+  if (matchDifference.value < 0) return "partial";
+  return "complete";
+});
+const matchActionLabel = computed(() => {
+  if (matching.value) return "正在匹配...";
+  if (!selectedExpense.value || !selectedInvoices.value.length) return "选择后保存";
+  if (matchDifference.value > 0) return "保存为替票";
+  if (matchDifference.value < 0) return "保存部分匹配";
+  return "完成匹配";
+});
 
 function invoiceKey(item: InvoicePoolItem): string {
   return `${item.attachment_id}:${item.invoice_item_index}`;
-}
-
-function allocationDefault(expense: Expense | null, invoice: InvoicePoolItem | null): string {
-  if (!expense || !invoice) return "";
-  const amount = Math.min(expense.remaining_amount || expense.actual_amount, invoice.remaining_amount);
-  return amount > 0 ? String(amount) : "";
 }
 
 function statusLabel(expense: Expense): string {
@@ -71,19 +102,23 @@ function statusLabel(expense: Expense): string {
 }
 
 function invoiceStatusLabel(invoice: InvoicePoolItem): string {
-  if (invoice.remaining_amount <= 0) return "已用完";
-  if (invoice.allocated_amount > 0) return "部分使用";
+  if (invoice.remaining_amount <= 0 || invoice.allocated_amount > 0) return "已匹配";
   return "待匹配";
 }
 
 function selectExpense(expense: Expense) {
   selectedExpenseId.value = expense.id;
-  allocationAmount.value = allocationDefault(expense, selectedInvoice.value);
 }
 
 function selectInvoice(invoice: InvoicePoolItem) {
-  selectedInvoiceKey.value = invoiceKey(invoice);
-  allocationAmount.value = allocationDefault(selectedExpense.value, invoice);
+  const key = invoiceKey(invoice);
+  selectedInvoiceKeys.value = selectedInvoiceKeys.value.includes(key)
+    ? selectedInvoiceKeys.value.filter((item) => item !== key)
+    : [...selectedInvoiceKeys.value, key];
+}
+
+function removeSelectedInvoice(key: string) {
+  selectedInvoiceKeys.value = selectedInvoiceKeys.value.filter((item) => item !== key);
 }
 
 function isTransactionImageFile(file: File): boolean {
@@ -191,18 +226,13 @@ function removeUploaded(id: number) {
 
 async function matchSelected() {
   const expense = selectedExpense.value;
-  const invoice = selectedInvoice.value;
-  const amount = Number(allocationAmount.value);
-  if (!expense || !invoice || !amount || amount <= 0) {
-    error.value = "请选择花费和发票，并填写分摊金额。";
+  const invoices = selectedInvoices.value;
+  if (!expense || !invoices.length) {
+    error.value = "请选择一条花费和至少一张发票。";
     return;
   }
-  if (amount > expense.remaining_amount) {
-    error.value = "分摊金额不能超过花费待覆盖金额。";
-    return;
-  }
-  if (amount > invoice.remaining_amount) {
-    error.value = "分摊金额不能超过发票可用金额。";
+  if (needsMismatchNote.value && !allocationNote.value.trim()) {
+    error.value = "票面合计超过花费金额时必须填写说明。";
     return;
   }
 
@@ -210,17 +240,17 @@ async function matchSelected() {
   error.value = "";
   success.value = "";
   try {
-    const updated = await createExpenseAllocation({
+    const updated = await createExpenseAllocationsBatch({
       expense_id: expense.id,
-      attachment_id: invoice.attachment_id,
-      invoice_item_index: invoice.invoice_item_index,
-      allocated_amount: amount,
+      invoices: invoices.map((invoice) => ({
+        attachment_id: invoice.attachment_id,
+        invoice_item_index: invoice.invoice_item_index
+      })),
       note: allocationNote.value.trim()
     });
     await loadWorkspace();
     selectedExpenseId.value = updated.remaining_amount > 0 ? updated.id : null;
-    selectedInvoiceKey.value = "";
-    allocationAmount.value = "";
+    selectedInvoiceKeys.value = [];
     allocationNote.value = "";
     success.value = updated.remaining_amount > 0 ? "已保存部分匹配" : "已匹配完成";
     if (updated.remaining_amount <= 0) emit("submitted");
@@ -239,10 +269,6 @@ watch(
     loadWorkspace();
   }
 );
-
-watch([selectedExpense, selectedInvoice], ([expense, invoice]) => {
-  allocationAmount.value = allocationDefault(expense, invoice);
-});
 
 onMounted(loadWorkspace);
 </script>
@@ -298,69 +324,164 @@ onMounted(loadWorkspace);
     </div>
 
     <!-- 匹配区 -->
-    <section class="tool-panel rounded-lg">
-      <div class="border-b border-slate-200 px-5 py-4">
-        <h2 class="section-title">匹配区</h2>
-        <p class="muted mt-1">从下方选择花费和发票，在这里完成关联。</p>
+    <section class="tool-panel overflow-hidden rounded-lg lg:sticky lg:top-4 lg:z-10">
+      <div class="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 class="section-title">匹配篮</h2>
+          <p class="muted mt-1">选择一条花费，把发票放进篮子里核对金额。</p>
+        </div>
+        <div
+          class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
+          :class="{
+            'bg-slate-100 text-slate-600': matchStateTone === 'neutral',
+            'bg-teal-50 text-teal-700': matchStateTone === 'complete',
+            'bg-amber-50 text-amber-700': matchStateTone === 'warning',
+            'bg-sky-50 text-sky-700': matchStateTone === 'partial'
+          }"
+        >
+          <CheckCircle2 v-if="matchStateTone === 'complete'" class="h-3.5 w-3.5" />
+          <AlertTriangle v-else-if="matchStateTone === 'warning'" class="h-3.5 w-3.5" />
+          <ReceiptText v-else class="h-3.5 w-3.5" />
+          {{ matchStateLabel }}
+        </div>
       </div>
-      <div class="match-flow">
-        <!-- 花费节点 -->
-        <div class="match-node">
-          <div :class="selectedExpense ? 'match-bullet-selected' : 'match-bullet-empty'">
-            <PlusCircle class="h-6 w-6" />
+
+      <div class="match-workbench">
+        <div class="match-expense-panel">
+          <div class="flex items-center justify-between gap-3">
+            <div class="text-xs font-semibold uppercase tracking-normal text-slate-400">当前花费</div>
+            <span v-if="selectedExpense" class="status-pill bg-slate-100 text-slate-600">{{ selectedExpense.category }}</span>
           </div>
-          <div class="w-full">
-            <div class="text-xs font-medium text-slate-500">花费</div>
-            <div class="mt-0.5 truncate text-sm font-semibold text-ink">
-              {{ selectedExpense?.project_name || "未选择" }}
+          <div v-if="selectedExpense" class="mt-4 space-y-4">
+            <div>
+              <div class="truncate text-lg font-semibold text-ink">{{ selectedExpense.project_name || selectedExpense.category }}</div>
+              <div class="mt-1 text-xs text-slate-500">{{ selectedExpense.expense_month }} · {{ selectedExpense.attachments.length }} 个交易附件</div>
             </div>
-            <div v-if="selectedExpense" class="mt-0.5 text-xs text-teal-700">
-              待覆盖 {{ formatCurrency(selectedExpense.remaining_amount) }}
+            <div class="grid grid-cols-3 gap-2 text-xs">
+              <div class="match-mini-stat">
+                <span>花费</span>
+                <strong>{{ formatCurrency(selectedExpense.actual_amount) }}</strong>
+              </div>
+              <div class="match-mini-stat">
+                <span>已匹配</span>
+                <strong>{{ formatCurrency(selectedExpense.allocated_amount) }}</strong>
+              </div>
+              <div class="match-mini-stat">
+                <span>待匹配</span>
+                <strong>{{ formatCurrency(selectedExpense.remaining_amount) }}</strong>
+              </div>
             </div>
-            <div v-else class="mt-0.5 text-xs text-slate-400">从花费池点选</div>
+            <div v-if="selectedExpense.attachments.length" class="flex flex-wrap gap-2">
+              <div
+                v-for="attachment in selectedExpense.attachments.slice(0, 3)"
+                :key="attachment.id"
+                class="inline-flex max-w-full items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600"
+              >
+                <AttachmentThumb :attachment="attachment" />
+                <span class="truncate">{{ attachment.original_filename }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="match-empty-copy">
+            <PlusCircle class="h-7 w-7 text-slate-300" />
+            <span>从下方花费池选择一条记录。</span>
           </div>
         </div>
 
-        <!-- 左连线 -->
-        <div class="match-connector">
-          <div :class="selectedExpense ? 'match-connector-active' : 'match-connector-line'" />
-        </div>
-
-        <!-- 中间：分摊表单 -->
-        <div class="match-center">
-          <div>
-            <label class="field-label" for="allocated-amount">分摊金额</label>
-            <input id="allocated-amount" v-model="allocationAmount" class="field-input mt-1" inputmode="decimal" />
+        <div class="match-meter-panel">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-normal text-slate-400">金额核对</div>
+              <div class="mt-2 text-2xl font-semibold text-ink">{{ formatCurrency(totalAfterMatch) }}</div>
+              <div class="mt-1 text-xs text-slate-500">当前已匹配 + 本次已选发票</div>
+            </div>
+            <div class="text-right text-xs text-slate-500">
+              <div>目标金额</div>
+              <div class="mt-1 text-base font-semibold text-ink">{{ selectedExpense ? formatCurrency(selectedExpense.actual_amount) : "-" }}</div>
+            </div>
           </div>
-          <div>
+
+          <div class="mt-5">
+            <div class="match-progress-track">
+              <div
+                class="match-progress-fill"
+                :class="needsMismatchNote ? 'bg-amber-500' : 'bg-teal-600'"
+                :style="{ width: `${matchProgress}%` }"
+              />
+            </div>
+            <div class="mt-2 flex justify-between text-xs text-slate-500">
+              <span>{{ selectedInvoices.length }} 张发票</span>
+              <span>{{ selectedExpense ? matchStateLabel : "等待选择" }}</span>
+            </div>
+          </div>
+
+          <div class="mt-5 grid gap-2 text-xs sm:grid-cols-3">
+            <div class="match-mini-stat">
+              <span>本次发票</span>
+              <strong>{{ formatCurrency(selectedInvoiceTotal) }}</strong>
+            </div>
+            <div class="match-mini-stat">
+              <span>匹配后差额</span>
+              <strong :class="matchDifference > 0 ? 'text-amber-700' : 'text-ink'">
+                {{ selectedExpense ? formatCurrency(matchDifference) : "-" }}
+              </strong>
+            </div>
+            <div class="match-mini-stat">
+              <span>动作</span>
+              <strong>{{ matchActionLabel }}</strong>
+            </div>
+          </div>
+
+          <div class="mt-5">
             <label class="field-label" for="allocation-note">说明</label>
-            <textarea id="allocation-note" v-model="allocationNote" class="field-textarea mt-1" rows="2" placeholder="替票、分摊原因等" />
+            <textarea
+              id="allocation-note"
+              v-model="allocationNote"
+              class="field-textarea mt-1 min-h-20"
+              rows="2"
+              :placeholder="needsMismatchNote ? '说明为什么使用大额发票替票' : '可填写匹配说明'"
+            />
+            <p v-if="needsMismatchNote" class="mt-1 text-xs text-amber-700">票面合计超过花费金额，保存后会标记为替票。</p>
           </div>
-          <button class="primary-button w-full" type="button" :disabled="matching || !matchReady" @click="matchSelected">
-            <Link2 class="h-4 w-4" />
-            {{ matching ? "正在匹配..." : "保存匹配" }}
+
+          <button class="primary-button mt-4 w-full" type="button" :disabled="matching || !matchReady" @click="matchSelected">
+            <Loader2 v-if="matching" class="h-4 w-4 animate-spin" />
+            <Link2 v-else class="h-4 w-4" />
+            {{ matchActionLabel }}
           </button>
         </div>
 
-        <!-- 右连线 -->
-        <div class="match-connector">
-          <div :class="selectedInvoice ? 'match-connector-active' : 'match-connector-line'" />
-        </div>
-
-        <!-- 发票节点 -->
-        <div class="match-node">
-          <div :class="selectedInvoice ? 'match-bullet-selected' : 'match-bullet-empty'">
-            <ReceiptText class="h-6 w-6" />
+        <div class="match-basket-panel">
+          <div class="flex items-center justify-between gap-3">
+            <div class="text-xs font-semibold uppercase tracking-normal text-slate-400">发票篮</div>
+            <span class="status-pill bg-teal-50 text-teal-700">{{ selectedInvoices.length }} 张</span>
           </div>
-          <div class="w-full">
-            <div class="text-xs font-medium text-slate-500">发票</div>
-            <div class="mt-0.5 truncate text-sm font-semibold text-ink">
-              {{ selectedInvoice?.invoice_type || "未选择" }}
+          <div v-if="selectedInvoices.length" class="mt-4 space-y-2">
+            <div
+              v-for="invoice in selectedInvoices"
+              :key="invoiceKey(invoice)"
+              class="match-invoice-row"
+            >
+              <div class="min-w-0">
+                <div class="truncate text-sm font-medium text-ink">{{ invoice.invoice_type }}</div>
+                <div class="mt-0.5 truncate text-xs text-slate-500">{{ invoice.attachment_name }}</div>
+              </div>
+              <div class="flex shrink-0 items-center gap-2">
+                <span class="text-sm font-semibold text-ink">{{ formatCurrency(invoice.invoice_amount) }}</span>
+                <button
+                  class="grid h-7 w-7 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-700"
+                  type="button"
+                  :aria-label="`移除 ${invoice.invoice_type}`"
+                  @click="removeSelectedInvoice(invoiceKey(invoice))"
+                >
+                  <X class="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <div v-if="selectedInvoice" class="mt-0.5 text-xs text-teal-700">
-              可用 {{ formatCurrency(selectedInvoice.remaining_amount) }}
-            </div>
-            <div v-else class="mt-0.5 text-xs text-slate-400">从发票池点选</div>
+          </div>
+          <div v-else class="match-empty-copy">
+            <ReceiptText class="h-7 w-7 text-slate-300" />
+            <span>从下方发票池点选一张或多张发票。</span>
           </div>
         </div>
       </div>
@@ -415,7 +536,7 @@ onMounted(loadWorkspace);
             </div>
             <div class="grid gap-1.5 text-xs text-slate-500">
               <div>金额：<span class="font-medium text-slate-800">{{ formatCurrency(expense.actual_amount) }}</span></div>
-              <div>已覆盖：<span class="font-medium text-slate-800">{{ formatCurrency(expense.allocated_amount) }}</span></div>
+              <div>已匹配：<span class="font-medium text-slate-800">{{ formatCurrency(expense.allocated_amount) }}</span></div>
             </div>
             <div class="mt-auto flex flex-wrap items-center gap-2">
               <div
@@ -444,7 +565,7 @@ onMounted(loadWorkspace);
       <section class="tool-panel rounded-lg">
         <div class="border-b border-slate-200 px-5 py-4">
           <h2 class="section-title">发票池</h2>
-          <p class="muted mt-1">点击选中后去匹配区关联花费。允许一张发票分摊给多条花费。</p>
+          <p class="muted mt-1">点击可多选，同一张发票只能匹配一个花费。</p>
         </div>
         <div v-if="!usableInvoices.length" class="empty-state">
           <div class="empty-state-icon">
@@ -460,7 +581,7 @@ onMounted(loadWorkspace);
             v-for="invoice in usableInvoices"
             :key="invoiceKey(invoice)"
             class="flex flex-col gap-3 rounded-lg border p-4 text-left transition hover:border-teal-300 hover:shadow-sm"
-            :class="selectedInvoiceKey === invoiceKey(invoice) ? 'border-teal-400 bg-teal-50/60 ring-2 ring-teal-700/10' : 'border-slate-200 bg-white'"
+            :class="selectedInvoiceKeys.includes(invoiceKey(invoice)) ? 'border-teal-400 bg-teal-50/60 ring-2 ring-teal-700/10' : 'border-slate-200 bg-white'"
             type="button"
             @click="selectInvoice(invoice)"
           >

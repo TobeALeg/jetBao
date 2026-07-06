@@ -98,6 +98,8 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_attachments_hash ON attachments(file_hash);
                 CREATE INDEX IF NOT EXISTS idx_allocations_expense ON expense_invoice_allocations(expense_id);
                 CREATE INDEX IF NOT EXISTS idx_allocations_invoice_item ON expense_invoice_allocations(attachment_id, invoice_item_index);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_allocations_unique_invoice_item
+                    ON expense_invoice_allocations(attachment_id, invoice_item_index);
                 """
             )
             self._migrate(connection)
@@ -166,6 +168,12 @@ class Database:
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_allocations_invoice_item
+                ON expense_invoice_allocations(attachment_id, invoice_item_index)
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_allocations_unique_invoice_item
                 ON expense_invoice_allocations(attachment_id, invoice_item_index)
             """
         )
