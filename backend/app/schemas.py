@@ -22,6 +22,11 @@ class LoginResponse(BaseModel):
     user: UserResponse
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=6)
+
+
 class AttachmentResponse(BaseModel):
     id: int
     original_filename: str

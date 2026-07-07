@@ -14,6 +14,7 @@ import type {
   ExportPreview,
   InvoicePoolItem,
   LedgerRow,
+  PasswordChangePayload,
   User
 } from "../types";
 
@@ -77,6 +78,13 @@ export async function login(username: string, password: string): Promise<{ token
 
 export async function getMe(): Promise<User> {
   return request("/me");
+}
+
+export async function changePassword(payload: PasswordChangePayload): Promise<User> {
+  return request("/me/password", {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function listExpenses(): Promise<Expense[]> {

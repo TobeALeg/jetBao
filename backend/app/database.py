@@ -106,6 +106,7 @@ class Database:
             self._migrate(connection)
             if seed_demo_users:
                 self._seed_demo_users(connection)
+                self._remove_legacy_demo_users(connection)
             self._ensure_admin_users(connection)
 
     def _migrate(self, connection: sqlite3.Connection) -> None:
@@ -222,8 +223,6 @@ class Database:
             return
         users = [
             ("admin", "admin123", "admin", "财务管理员", "上海示例科技有限公司"),
-            ("alice", "alice123", "employee", "Alice Chen", "上海示例科技有限公司"),
-            ("bob", "bob123", "employee", "Bob Li", "杭州示例信息有限公司"),
             ("Dandi", "dandi123", "admin", "艾丹迪", "上海山途远智信息科技有限公司"),
             ("Ouyang", "ouyang123", "admin", "欧阳", "上海山途远智信息科技有限公司"),
         ]
@@ -234,6 +233,13 @@ class Database:
             """,
             [(username, hash_password(password), role, name, company) for username, password, role, name, company in users],
         )
+
+    def _remove_legacy_demo_users(self, connection: sqlite3.Connection) -> None:
+        for username in ("alice", "bob"):
+            try:
+                connection.execute("DELETE FROM users WHERE lower(username) = ?", (username,))
+            except sqlite3.IntegrityError:
+                connection.execute("UPDATE users SET is_active = 0 WHERE lower(username) = ?", (username,))
 
 
 def one(connection: sqlite3.Connection, query: str, params: Iterable[Any] = ()) -> sqlite3.Row | None:

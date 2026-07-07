@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.database import one
 from app.dependencies import get_current_user
-from app.schemas import LoginRequest, LoginResponse, UserResponse
-from app.security import create_token, verify_password
+from app.schemas import LoginRequest, LoginResponse, PasswordChangeRequest, UserResponse
+from app.security import create_token, hash_password, verify_password
 
 
 router = APIRouter(prefix="/api", tags=["auth"])
@@ -37,3 +37,23 @@ def login(payload: LoginRequest, request: Request) -> LoginResponse:
 @router.get("/me", response_model=UserResponse)
 def me(user=Depends(get_current_user)) -> UserResponse:
     return serialize_user(user)
+
+
+@router.patch("/me/password", response_model=UserResponse)
+def change_password(
+    payload: PasswordChangeRequest,
+    request: Request,
+    user=Depends(get_current_user),
+) -> UserResponse:
+    if not verify_password(payload.current_password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前密码不正确")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码不能和当前密码相同")
+
+    with request.app.state.db.connect() as connection:
+        connection.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(payload.new_password), user["id"]),
+        )
+        updated = one(connection, "SELECT * FROM users WHERE id = ?", (user["id"],))
+    return serialize_user(updated)

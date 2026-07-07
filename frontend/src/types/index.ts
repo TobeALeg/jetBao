@@ -205,3 +205,8 @@ export interface AdminUserUpdatePayload {
   company_entity?: string;
   is_active?: boolean;
 }
+
+export interface PasswordChangePayload {
+  current_password: string;
+  new_password: string;
+}

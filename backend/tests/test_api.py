@@ -93,17 +93,50 @@ def test_dandi_and_ouyang_are_seeded_as_admins(tmp_path, monkeypatch):
         assert me.json()["employee_name"] == employee_name
 
 
+def test_legacy_alice_and_bob_demo_accounts_are_not_seeded(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+
+    for username, password in (("alice", "alice123"), ("bob", "bob123")):
+        response = client.post("/api/auth/login", json={"username": username, "password": password})
+        assert response.status_code == 401
+
+
+def test_user_can_change_own_password(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    headers = auth_headers(client, "Dandi", "dandi123")
+
+    wrong_current = client.patch(
+        "/api/me/password",
+        headers=headers,
+        json={"current_password": "wrong-password", "new_password": "dandi-new123"},
+    )
+    assert wrong_current.status_code == 400
+
+    changed = client.patch(
+        "/api/me/password",
+        headers=headers,
+        json={"current_password": "dandi123", "new_password": "dandi-new123"},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["username"] == "Dandi"
+
+    old_login = client.post("/api/auth/login", json={"username": "Dandi", "password": "dandi123"})
+    assert old_login.status_code == 401
+    new_login = client.post("/api/auth/login", json={"username": "Dandi", "password": "dandi-new123"})
+    assert new_login.status_code == 200
+
+
 def test_employee_can_create_expense_and_only_see_own_records(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
-    bob = auth_headers(client, "bob", "bob123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
+    ouyang = auth_headers(client, "Ouyang", "ouyang123")
 
-    upload = upload_file(client, alice, "invoice.pdf", b"invoice-one")
+    upload = upload_file(client, dandi, "invoice.pdf", b"invoice-one")
     assert upload.status_code == 200
 
     create = client.post(
         "/api/expenses",
-        headers=alice,
+        headers=dandi,
         json={
             "category": "差旅交通",
             "expense_month": "2026-05",
@@ -116,21 +149,21 @@ def test_employee_can_create_expense_and_only_see_own_records(tmp_path, monkeypa
         },
     )
     assert create.status_code == 200
-    assert create.json()["company_entity"] == "上海示例科技有限公司"
+    assert create.json()["company_entity"] == "上海山途远智信息科技有限公司"
 
-    alice_records = client.get("/api/expenses", headers=alice)
-    bob_records = client.get("/api/expenses", headers=bob)
-    assert len(alice_records.json()) == 1
-    assert bob_records.json() == []
+    dandi_records = client.get("/api/expenses", headers=dandi)
+    ouyang_records = client.get("/api/expenses", headers=ouyang)
+    assert len(dandi_records.json()) == 1
+    assert ouyang_records.json() == []
 
 
 def test_substitute_and_amount_mismatch_require_reason(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
 
     response = client.post(
         "/api/expenses",
-        headers=alice,
+        headers=dandi,
         json={
             "category": "AI 项目",
             "expense_month": "2026-05",
@@ -148,10 +181,10 @@ def test_substitute_and_amount_mismatch_require_reason(tmp_path, monkeypatch):
 
 def test_duplicate_upload_is_marked_but_not_blocked(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
 
-    first = upload_file(client, alice, "a.pdf", b"same-content")
-    second = upload_file(client, alice, "b.pdf", b"same-content")
+    first = upload_file(client, dandi, "a.pdf", b"same-content")
+    second = upload_file(client, dandi, "b.pdf", b"same-content")
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json()["is_duplicate"] is False
@@ -159,7 +192,7 @@ def test_duplicate_upload_is_marked_but_not_blocked(tmp_path, monkeypatch):
 
     create = client.post(
         "/api/expenses",
-        headers=alice,
+        headers=dandi,
         json={
             "category": "办公采购",
             "expense_month": "2026-05",
@@ -177,12 +210,12 @@ def test_duplicate_upload_is_marked_but_not_blocked(tmp_path, monkeypatch):
 
 def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     admin = auth_headers(client, "admin", "admin123")
 
     create = client.post(
         "/api/expenses",
-        headers=alice,
+        headers=dandi,
         json={
             "category": "市场活动",
             "expense_month": "2026-05",
@@ -198,7 +231,7 @@ def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
 
     draft = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "客户拜访打车",
             "actual_amount": 80,
@@ -208,10 +241,10 @@ def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
     )
     assert draft.status_code == 200
 
-    ledger = client.get("/api/admin/ledger?month=2026-05&employee=Alice&status=submitted", headers=admin)
+    ledger = client.get("/api/admin/ledger?month=2026-05&employee=艾丹迪&status=submitted", headers=admin)
     assert ledger.status_code == 200
     assert len(ledger.json()) == 1
-    assert ledger.json()[0]["employee_name"] == "Alice Chen"
+    assert ledger.json()[0]["employee_name"] == "艾丹迪"
     assert ledger.json()[0]["status"] == "submitted"
 
     draft_ledger = client.get("/api/admin/ledger?month=2026-05&status=draft", headers=admin)
@@ -237,18 +270,18 @@ def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
 
 def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
-    bob = auth_headers(client, "bob", "bob123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
+    ouyang = auth_headers(client, "Ouyang", "ouyang123")
     admin = auth_headers(client, "admin", "admin123")
 
-    payment = upload_file(client, alice, "payment.png", b"payment-image", "image/png")
+    payment = upload_file(client, dandi, "payment.png", b"payment-image", "image/png")
     assert payment.status_code == 200
     first_invoice_id = insert_ocr_attachment(
         client,
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "seller_name": "上海出租车公司",
                 "item_name": "出租车费",
                 "amount": 120,
@@ -264,7 +297,7 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "seller_name": "上海酒店",
                 "item_name": "住宿费",
                 "amount": 300,
@@ -278,7 +311,7 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
 
     draft = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "客户拜访差旅",
             "actual_amount": 420,
@@ -289,13 +322,13 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
     assert draft.status_code == 200
     link = client.post(
         f"/api/expenses/{draft.json()['id']}/attachments",
-        headers=alice,
+        headers=dandi,
         json={"attachment_ids": [payment.json()["id"]]},
     )
     assert link.status_code == 200
     match = client.post(
         "/api/expense-allocations/batch",
-        headers=alice,
+        headers=dandi,
         json={
             "expense_id": draft.json()["id"],
             "invoices": [
@@ -306,25 +339,25 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
         },
     )
     assert match.status_code == 200
-    bob_invoice_id = insert_ocr_attachment(
+    ouyang_invoice_id = insert_ocr_attachment(
         client,
         user_id=3,
         invoice_items=[
             {
-                "buyer": "杭州示例信息有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "seller_name": "杭州办公用品有限公司",
                 "item_name": "办公耗材",
                 "amount": 80,
-                "invoice_number": "BOB-1",
+                "invoice_number": "OY-1",
                 "date": "2026-05-23",
                 "sub_type_description": "电子普通发票",
             }
         ],
-        filename="bob-office.pdf",
+        filename="ouyang-office.pdf",
     )
-    bob_draft = client.post(
+    ouyang_draft = client.post(
         "/api/expenses/drafts",
-        headers=bob,
+        headers=ouyang,
         json={
             "project_name": "办公耗材",
             "actual_amount": 80,
@@ -332,18 +365,18 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
             "category": "办公采购",
         },
     )
-    assert bob_draft.status_code == 200
-    bob_match = client.post(
+    assert ouyang_draft.status_code == 200
+    ouyang_match = client.post(
         "/api/expense-allocations",
-        headers=bob,
+        headers=ouyang,
         json={
-            "expense_id": bob_draft.json()["id"],
-            "attachment_id": bob_invoice_id,
+            "expense_id": ouyang_draft.json()["id"],
+            "attachment_id": ouyang_invoice_id,
             "invoice_item_index": 0,
             "note": "",
         },
     )
-    assert bob_match.status_code == 200
+    assert ouyang_match.status_code == 200
 
     package = client.get("/api/admin/export-package.zip?month=2026-05", headers=admin)
     assert package.status_code == 200
@@ -377,23 +410,22 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
         "本次报销金额",
         "票面-报销差异",
     ]
-    company_rows = {
-        overview.cell(row=row, column=1).value: [overview.cell(row=row, column=column).value for column in range(2, 8)]
-        for row in range(8, 10)
-    }
-    assert company_rows["示例科技"] == [1, 1, 2, 420, 420, 0]
-    assert company_rows["杭州示例信息"] == [1, 1, 1, 80, 80, 0]
     detail_header_row = next(
         row
         for row in range(1, overview.max_row + 1)
         if overview.cell(row=row, column=1).value == "公司主体" and overview.cell(row=row, column=2).value == "人员"
     )
+    company_rows = {
+        overview.cell(row=row, column=1).value: [overview.cell(row=row, column=column).value for column in range(2, 8)]
+        for row in range(8, detail_header_row)
+    }
+    assert company_rows["信息科技"] == [2, 2, 3, 500, 500, 0]
     detail_rows = {
         overview.cell(row=row, column=2).value: [overview.cell(row=row, column=column).value for column in range(1, 8)]
         for row in range(detail_header_row + 1, detail_header_row + 3)
     }
-    assert detail_rows["Alice Chen"] == ["示例科技", "Alice Chen", 1, 2, 420, 420, 0]
-    assert detail_rows["Bob Li"] == ["杭州示例信息", "Bob Li", 1, 1, 80, 80, 0]
+    assert detail_rows["艾丹迪"] == ["信息科技", "艾丹迪", 1, 2, 420, 420, 0]
+    assert detail_rows["欧阳"] == ["信息科技", "欧阳", 1, 1, 80, 80, 0]
     summary = workbook["报销项汇总"]
     assert [cell.value for cell in summary[1]] == [
         "组ID",
@@ -409,15 +441,15 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
         "附件数",
         "备注",
     ]
-    assert summary["E2"].value == "客户拜访差旅"
-    assert summary["F2"].value == "已匹配"
-    assert summary["G2"].value == 2
-    assert summary["H2"].value == 420
-    assert summary["I2"].value == 420
+    summary_rows = {
+        summary.cell(row=row, column=5).value: [summary.cell(row=row, column=column).value for column in range(6, 10)]
+        for row in range(2, summary.max_row + 1)
+    }
+    assert summary_rows["客户拜访差旅"] == ["已匹配", 2, 420, 420]
 
     invoice_sheet = workbook["发票明细"]
     assert invoice_sheet.max_row == 4
-    assert {invoice_sheet[f"G{row}"].value for row in range(2, 5)} == {"INV-A", "INV-B", "BOB-1"}
+    assert {invoice_sheet[f"G{row}"].value for row in range(2, 5)} == {"INV-A", "INV-B", "OY-1"}
     attachments_sheet = workbook["附件与待核对"]
     assert attachments_sheet["D2"].value == "交易记录"
     assert attachments_sheet["E2"].value == "payment.png"
@@ -425,13 +457,13 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
 
 def test_employee_can_create_draft_and_complete_it_with_invoice_item(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 120,
                 "invoice_number": "DRAFT-1",
                 "date": "2026-05-20",
@@ -443,7 +475,7 @@ def test_employee_can_create_draft_and_complete_it_with_invoice_item(tmp_path, m
 
     draft = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "客户拜访打车",
             "actual_amount": 120,
@@ -458,7 +490,7 @@ def test_employee_can_create_draft_and_complete_it_with_invoice_item(tmp_path, m
 
     complete = client.post(
         f"/api/expenses/drafts/{body['id']}/complete",
-        headers=alice,
+        headers=dandi,
         json={
             "attachment_id": attachment_id,
             "invoice_item_index": 0,
@@ -483,13 +515,13 @@ def test_employee_can_create_draft_and_complete_it_with_invoice_item(tmp_path, m
 
 def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     first_attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 120,
                 "invoice_number": "INV-1",
                 "date": "2026-05-21",
@@ -503,7 +535,7 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 300,
                 "invoice_number": "INV-2",
                 "date": "2026-05-22",
@@ -515,7 +547,7 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
 
     expense = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "客户拜访差旅",
             "actual_amount": 420,
@@ -526,7 +558,7 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
 
     match = client.post(
         "/api/expense-allocations/batch",
-        headers=alice,
+        headers=dandi,
         json={
             "expense_id": expense["id"],
             "invoices": [
@@ -544,7 +576,7 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
 
     other_expense = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "AI 工具订阅",
             "actual_amount": 120,
@@ -554,7 +586,7 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
     ).json()
     duplicate_match = client.post(
         "/api/expense-allocations",
-        headers=alice,
+        headers=dandi,
         json={
             "expense_id": other_expense["id"],
             "attachment_id": first_attachment_id,
@@ -565,7 +597,7 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
     assert duplicate_match.status_code == 400
     assert "已经匹配" in duplicate_match.json()["detail"]
 
-    pool = client.get("/api/invoice-pool", headers=alice)
+    pool = client.get("/api/invoice-pool", headers=dandi)
     assert pool.status_code == 200
     by_attachment = {item["attachment_id"]: item for item in pool.json()}
     assert by_attachment[first_attachment_id]["allocated_amount"] == 120
@@ -576,12 +608,12 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
 
 def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
 
-    image_upload = upload_file(client, alice, "payment.png", b"payment-image", "image/png")
+    image_upload = upload_file(client, dandi, "payment.png", b"payment-image", "image/png")
     assert image_upload.status_code == 200
     image_id = image_upload.json()["id"]
-    content = client.get(f"/api/attachments/{image_id}/content", headers=alice)
+    content = client.get(f"/api/attachments/{image_id}/content", headers=dandi)
     assert content.status_code == 200
     assert content.content == b"payment-image"
 
@@ -590,7 +622,7 @@ def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, mon
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 199,
                 "invoice_number": "PAYMENT-LIKE",
                 "date": "2026-05-22",
@@ -602,7 +634,7 @@ def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, mon
 
     draft = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "客户现场停车费",
             "actual_amount": 199,
@@ -614,7 +646,7 @@ def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, mon
 
     link = client.post(
         f"/api/expenses/{draft.json()['id']}/attachments",
-        headers=alice,
+        headers=dandi,
         json={"attachment_ids": [image_id, invoice_like_attachment_id]},
     )
     assert link.status_code == 200
@@ -622,20 +654,20 @@ def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, mon
     assert linked["status"] == "draft"
     assert {item["id"] for item in linked["attachments"]} == {image_id, invoice_like_attachment_id}
 
-    pool = client.get("/api/invoice-pool", headers=alice)
+    pool = client.get("/api/invoice-pool", headers=dandi)
     assert pool.status_code == 200
     assert all(item["attachment_id"] != invoice_like_attachment_id for item in pool.json())
 
 
 def test_employee_can_delete_transaction_attachment_from_expense(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
 
-    image_upload = upload_file(client, alice, "wrong-payment.png", b"wrong-payment", "image/png")
+    image_upload = upload_file(client, dandi, "wrong-payment.png", b"wrong-payment", "image/png")
     assert image_upload.status_code == 200
     draft = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "客户现场停车费",
             "actual_amount": 199,
@@ -646,7 +678,7 @@ def test_employee_can_delete_transaction_attachment_from_expense(tmp_path, monke
     assert draft.status_code == 200
     link = client.post(
         f"/api/expenses/{draft.json()['id']}/attachments",
-        headers=alice,
+        headers=dandi,
         json={"attachment_ids": [image_upload.json()["id"]]},
     )
     assert link.status_code == 200
@@ -654,23 +686,23 @@ def test_employee_can_delete_transaction_attachment_from_expense(tmp_path, monke
 
     delete = client.delete(
         f"/api/expenses/{draft.json()['id']}/attachments/{image_upload.json()['id']}",
-        headers=alice,
+        headers=dandi,
     )
     assert delete.status_code == 200
     assert delete.json()["attachments"] == []
-    missing = client.get(f"/api/attachments/{image_upload.json()['id']}/content", headers=alice)
+    missing = client.get(f"/api/attachments/{image_upload.json()['id']}/content", headers=dandi)
     assert missing.status_code == 404
 
 
 def test_employee_can_delete_unused_invoice_attachment(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 88,
                 "invoice_number": "WRONG-1",
                 "date": "2026-05-23",
@@ -679,27 +711,27 @@ def test_employee_can_delete_unused_invoice_attachment(tmp_path, monkeypatch):
         ],
         filename="wrong-invoice.pdf",
     )
-    pool = client.get("/api/invoice-pool", headers=alice)
+    pool = client.get("/api/invoice-pool", headers=dandi)
     assert any(item["attachment_id"] == attachment_id for item in pool.json())
 
-    delete = client.delete(f"/api/attachments/{attachment_id}", headers=alice)
+    delete = client.delete(f"/api/attachments/{attachment_id}", headers=dandi)
     assert delete.status_code == 200
     assert delete.json() == {"deleted": True}
-    pool_after = client.get("/api/invoice-pool", headers=alice)
+    pool_after = client.get("/api/invoice-pool", headers=dandi)
     assert all(item["attachment_id"] != attachment_id for item in pool_after.json())
-    missing = client.get(f"/api/attachments/{attachment_id}/content", headers=alice)
+    missing = client.get(f"/api/attachments/{attachment_id}/content", headers=dandi)
     assert missing.status_code == 404
 
 
 def test_deleting_draft_expense_releases_matched_invoice(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 120,
                 "invoice_number": "PARTIAL-1",
                 "date": "2026-05-23",
@@ -710,7 +742,7 @@ def test_deleting_draft_expense_releases_matched_invoice(tmp_path, monkeypatch):
     )
     draft = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "客户拜访差旅",
             "actual_amount": 300,
@@ -721,7 +753,7 @@ def test_deleting_draft_expense_releases_matched_invoice(tmp_path, monkeypatch):
     assert draft.status_code == 200
     match = client.post(
         "/api/expense-allocations",
-        headers=alice,
+        headers=dandi,
         json={
             "expense_id": draft.json()["id"],
             "attachment_id": attachment_id,
@@ -732,30 +764,30 @@ def test_deleting_draft_expense_releases_matched_invoice(tmp_path, monkeypatch):
     assert match.status_code == 200
     assert match.json()["status"] == "draft"
 
-    used_pool = client.get("/api/invoice-pool", headers=alice)
+    used_pool = client.get("/api/invoice-pool", headers=dandi)
     used_item = next(item for item in used_pool.json() if item["attachment_id"] == attachment_id)
     assert used_item["remaining_amount"] == 0
 
-    delete = client.delete(f"/api/expenses/{draft.json()['id']}", headers=alice)
+    delete = client.delete(f"/api/expenses/{draft.json()['id']}", headers=dandi)
     assert delete.status_code == 200
     assert delete.json() == {"deleted": True}
-    expenses = client.get("/api/expenses", headers=alice)
+    expenses = client.get("/api/expenses", headers=dandi)
     assert all(item["id"] != draft.json()["id"] for item in expenses.json())
 
-    released_pool = client.get("/api/invoice-pool", headers=alice)
+    released_pool = client.get("/api/invoice-pool", headers=dandi)
     released_item = next(item for item in released_pool.json() if item["attachment_id"] == attachment_id)
     assert released_item["remaining_amount"] == 120
 
 
 def test_invoice_match_requires_reason_when_invoice_total_exceeds_expense(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 120,
                 "invoice_number": "OVER-1",
                 "date": "2026-05-23",
@@ -767,7 +799,7 @@ def test_invoice_match_requires_reason_when_invoice_total_exceeds_expense(tmp_pa
 
     draft = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "市场物料垫付",
             "actual_amount": 100,
@@ -778,7 +810,7 @@ def test_invoice_match_requires_reason_when_invoice_total_exceeds_expense(tmp_pa
 
     no_reason = client.post(
         "/api/expense-allocations/batch",
-        headers=alice,
+        headers=dandi,
         json={
             "expense_id": draft["id"],
             "invoices": [{"attachment_id": attachment_id, "invoice_item_index": 0}],
@@ -790,7 +822,7 @@ def test_invoice_match_requires_reason_when_invoice_total_exceeds_expense(tmp_pa
 
     with_reason = client.post(
         "/api/expense-allocations/batch",
-        headers=alice,
+        headers=dandi,
         json={
             "expense_id": draft["id"],
             "invoices": [{"attachment_id": attachment_id, "invoice_item_index": 0}],
@@ -806,17 +838,17 @@ def test_invoice_match_requires_reason_when_invoice_total_exceeds_expense(tmp_pa
 
 def test_draft_completion_requires_reason_when_amount_mismatches_invoice(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
-        invoice_items=[{"buyer": "上海示例科技有限公司", "amount": 120}],
+        invoice_items=[{"buyer": "上海山途远智信息科技有限公司", "amount": 120}],
         filename="amount-mismatch.pdf",
     )
 
     draft = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "市场物料垫付",
             "actual_amount": 100,
@@ -828,7 +860,7 @@ def test_draft_completion_requires_reason_when_amount_mismatches_invoice(tmp_pat
 
     response = client.post(
         f"/api/expenses/drafts/{draft.json()['id']}/complete",
-        headers=alice,
+        headers=dandi,
         json={
             "attachment_id": attachment_id,
             "invoice_item_index": 0,
@@ -846,11 +878,11 @@ def test_draft_completion_requires_reason_when_amount_mismatches_invoice(tmp_pat
 
 def test_batch_upload_accepts_multiple_files(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
 
     response = client.post(
         "/api/attachments/batch",
-        headers=alice,
+        headers=dandi,
         files=[
             ("files", ("invoice-a.pdf", b"invoice-a", "application/pdf")),
             ("files", ("invoice-b.pdf", b"invoice-b", "application/pdf")),
@@ -868,13 +900,13 @@ def test_batch_upload_accepts_multiple_files(tmp_path, monkeypatch):
 
 def test_staged_invoice_enters_pool_only_after_button_action(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 88.6,
                 "invoice_number": "POOL-1",
                 "date": "2026-05-18",
@@ -885,27 +917,27 @@ def test_staged_invoice_enters_pool_only_after_button_action(tmp_path, monkeypat
         pool_status="staged",
     )
 
-    pool = client.get("/api/invoice-pool", headers=alice)
+    pool = client.get("/api/invoice-pool", headers=dandi)
     assert pool.status_code == 200
     assert all(item["attachment_id"] != attachment_id for item in pool.json())
 
-    publish = client.post("/api/attachments/pool", headers=alice, json={"attachment_ids": [attachment_id]})
+    publish = client.post("/api/attachments/pool", headers=dandi, json={"attachment_ids": [attachment_id]})
     assert publish.status_code == 200
     assert publish.json()[0]["pool_status"] == "pooled"
 
-    pool_after = client.get("/api/invoice-pool", headers=alice)
+    pool_after = client.get("/api/invoice-pool", headers=dandi)
     assert any(item["attachment_id"] == attachment_id for item in pool_after.json())
 
 
 def test_staged_invoice_can_bind_directly_without_entering_pool(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 88.6,
                 "invoice_number": "DIRECT-1",
                 "date": "2026-05-18",
@@ -918,7 +950,7 @@ def test_staged_invoice_can_bind_directly_without_entering_pool(tmp_path, monkey
 
     draft = client.post(
         "/api/expenses/drafts",
-        headers=alice,
+        headers=dandi,
         json={
             "project_name": "客户拜访打车",
             "actual_amount": 88.6,
@@ -930,7 +962,7 @@ def test_staged_invoice_can_bind_directly_without_entering_pool(tmp_path, monkey
 
     match = client.post(
         "/api/expense-allocations/batch",
-        headers=alice,
+        headers=dandi,
         json={
             "expense_id": draft.json()["id"],
             "invoices": [{"attachment_id": attachment_id, "invoice_item_index": 0}],
@@ -940,26 +972,26 @@ def test_staged_invoice_can_bind_directly_without_entering_pool(tmp_path, monkey
     assert match.status_code == 200
     assert match.json()["status"] == "submitted"
 
-    pool = client.get("/api/invoice-pool", headers=alice)
+    pool = client.get("/api/invoice-pool", headers=dandi)
     assert all(item["attachment_id"] != attachment_id for item in pool.json())
 
 
 def test_batch_expense_creates_one_record_per_invoice_item(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
         invoice_items=[
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 88.6,
                 "invoice_number": "NO-1",
                 "date": "2026-05-18",
                 "sub_type_description": "电子普通发票",
             },
             {
-                "buyer": "上海示例科技有限公司",
+                "buyer": "上海山途远智信息科技有限公司",
                 "amount": 12.3,
                 "invoice_number": "NO-2",
                 "date": "2026-05-18",
@@ -970,7 +1002,7 @@ def test_batch_expense_creates_one_record_per_invoice_item(tmp_path, monkeypatch
 
     response = client.post(
         "/api/expenses/batch",
-        headers=alice,
+        headers=dandi,
         json={
             "items": [
                 {
@@ -1007,7 +1039,7 @@ def test_batch_expense_creates_one_record_per_invoice_item(tmp_path, monkeypatch
 
 def test_batch_expense_rejects_wrong_company_title(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    alice = auth_headers(client, "alice", "alice123")
+    dandi = auth_headers(client, "Dandi", "dandi123")
     attachment_id = insert_ocr_attachment(
         client,
         user_id=2,
@@ -1017,7 +1049,7 @@ def test_batch_expense_rejects_wrong_company_title(tmp_path, monkeypatch):
 
     response = client.post(
         "/api/expenses/batch",
-        headers=alice,
+        headers=dandi,
         json={
             "items": [
                 {

@@ -31,8 +31,8 @@ npm run dev
 首次启动后端会创建三个演示账号：
 
 - 管理员：`admin` / `admin123`
-- 员工：`alice` / `alice123`
-- 员工：`bob` / `bob123`
+- 管理员：`Dandi` / `dandi123`
+- 管理员：`Ouyang` / `ouyang123`
 
 上线前请关闭演示账号种子数据，并改用自己的管理员账号。
 
