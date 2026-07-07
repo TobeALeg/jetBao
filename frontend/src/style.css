@@ -141,18 +141,8 @@ textarea {
     @apply text-amber-700;
   }
 
-  .match-workbench {
-    @apply grid gap-0 divide-y divide-slate-200 lg:grid-cols-[1fr_1.3fr_1fr] lg:divide-x lg:divide-y-0;
-  }
-
-  .match-expense-panel,
-  .match-meter-panel,
-  .match-basket-panel {
+  .work-bar-panel {
     @apply min-h-72 p-5;
-  }
-
-  .match-meter-panel {
-    @apply bg-slate-50/70;
   }
 
   .match-mini-stat {
