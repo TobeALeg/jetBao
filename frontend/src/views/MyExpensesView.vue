@@ -27,6 +27,7 @@ const emit = defineEmits<{
 const expenses = ref<Expense[]>([]);
 const loading = ref(true);
 const error = ref("");
+const success = ref("");
 const showDraftForm = ref(false);
 const savingDraft = ref(false);
 
@@ -78,6 +79,7 @@ async function load() {
 async function submitDraft(payload: DraftExpenseCreatePayload) {
   savingDraft.value = true;
   error.value = "";
+  success.value = "";
   try {
     await createExpenseDraft(payload);
     showDraftForm.value = false;
@@ -87,6 +89,17 @@ async function submitDraft(payload: DraftExpenseCreatePayload) {
   } finally {
     savingDraft.value = false;
   }
+}
+
+function handleAttachmentUploaded(updated: Expense) {
+  expenses.value = expenses.value.map((item) => (item.id === updated.id ? updated : item));
+  error.value = "";
+  success.value = "附件已保存";
+}
+
+function handleUploadError(message: string) {
+  success.value = "";
+  error.value = message;
 }
 
 onMounted(load);
@@ -145,7 +158,14 @@ watch(() => props.refreshKey, load);
 
     <QuickDraftForm v-if="showDraftForm" :saving="savingDraft" @submit="submitDraft" @cancel="showDraftForm = false" />
     <StatStrip :stats="stats" />
+    <p v-if="success" class="rounded-md bg-teal-50 px-3 py-2 text-sm text-teal-800">{{ success }}</p>
     <p v-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
-    <ExpenseTable :expenses="expenses" :loading="loading" @complete-draft="emit('complete-draft', $event)" />
+    <ExpenseTable
+      :expenses="expenses"
+      :loading="loading"
+      @complete-draft="emit('complete-draft', $event)"
+      @attachment-uploaded="handleAttachmentUploaded"
+      @upload-error="handleUploadError"
+    />
   </div>
 </template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { AlertTriangle, FileText, Upload } from "lucide-vue-next";
+import ExpenseAttachmentUploadButton from "./ExpenseAttachmentUploadButton.vue";
 import { formatCurrency, formatDate } from "../utils/format";
 import type { Expense } from "../types";
 
@@ -10,6 +11,8 @@ defineProps<{
 
 defineEmits<{
   "complete-draft": [expense: Expense];
+  "attachment-uploaded": [expense: Expense];
+  "upload-error": [message: string];
 }>();
 
 function statusLabel(status: Expense["status"]): string {
@@ -87,15 +90,23 @@ function statusClass(status: Expense["status"]): string {
             </td>
             <td class="whitespace-nowrap px-5 py-4 text-slate-500">{{ formatDate(expense.created_at) }}</td>
             <td class="whitespace-nowrap px-5 py-4">
-              <button
-                v-if="expense.status === 'draft'"
-                class="secondary-button h-9 px-3"
-                type="button"
-                @click="$emit('complete-draft', expense)"
-              >
-                <Upload class="h-4 w-4" />
-                补材料
-              </button>
+              <div v-if="expense.status === 'draft'" class="flex items-center gap-2">
+                <ExpenseAttachmentUploadButton
+                  :expense="expense"
+                  compact
+                  label="附件"
+                  @uploaded="$emit('attachment-uploaded', $event)"
+                  @error="$emit('upload-error', $event)"
+                />
+                <button
+                  class="secondary-button h-8 px-2 text-xs"
+                  type="button"
+                  @click="$emit('complete-draft', expense)"
+                >
+                  <Upload class="h-4 w-4" />
+                  补材料
+                </button>
+              </div>
               <span v-else class="text-sm text-slate-400">-</span>
             </td>
           </tr>

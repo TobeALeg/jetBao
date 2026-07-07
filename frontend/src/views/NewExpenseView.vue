@@ -547,6 +547,16 @@ onMounted(loadWorkspace);
                 </button>
               </div>
             </div>
+            <button
+              class="secondary-button h-9 px-3"
+              type="button"
+              :disabled="transactionUploadingExpenseId === selectedExpense.id"
+              @click="triggerTransactionUpload(selectedExpense)"
+            >
+              <Loader2 v-if="transactionUploadingExpenseId === selectedExpense.id" class="h-4 w-4 animate-spin" />
+              <ImagePlus v-else class="h-4 w-4" />
+              {{ transactionUploadingExpenseId === selectedExpense.id ? "上传中" : "上传附件" }}
+            </button>
           </div>
 
           <form v-else class="mt-4 space-y-3" @submit.prevent="submitExpense()">
