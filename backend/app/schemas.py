@@ -29,6 +29,7 @@ class AttachmentResponse(BaseModel):
     file_size: int
     duplicate_count: int
     is_duplicate: bool
+    pool_status: str
     ocr_status: str
     ocr_result: dict
     created_at: str
@@ -85,6 +86,10 @@ class ExpenseAllocationBatchCreateRequest(BaseModel):
 
 
 class ExpenseAttachmentLinkRequest(BaseModel):
+    attachment_ids: list[int] = Field(min_length=1)
+
+
+class AttachmentPoolRequest(BaseModel):
     attachment_ids: list[int] = Field(min_length=1)
 
 

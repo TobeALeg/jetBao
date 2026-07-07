@@ -5,6 +5,7 @@ import AttachmentThumb from "../components/AttachmentThumb.vue";
 import InvoiceUploadPanel from "../components/InvoiceUploadPanel.vue";
 import { DEFAULT_EXPENSE_CATEGORY, EXPENSE_CATEGORIES } from "../constants/expenseCategories";
 import {
+  addAttachmentsToInvoicePool,
   createExpenseAllocationsBatch,
   createExpenseDraft,
   deleteAttachment,
@@ -32,7 +33,9 @@ const invoicePool = ref<InvoicePoolItem[]>([]);
 const uploadedAttachments = ref<Attachment[]>([]);
 const loading = ref(false);
 const savingExpense = ref(false);
+const recordingItem = ref(false);
 const matching = ref(false);
+const poolingInvoices = ref(false);
 const error = ref("");
 const success = ref("");
 const transactionInputRef = ref<HTMLInputElement | null>(null);
@@ -53,9 +56,33 @@ const expenseForm = reactive({
   category: DEFAULT_EXPENSE_CATEGORY
 });
 
+type StagedInvoiceReference = {
+  attachment_id: number;
+  invoice_item_index: number;
+  invoice_amount: number;
+};
+
 const selectedExpense = computed(() => expenses.value.find((item) => item.id === selectedExpenseId.value) ?? null);
 const selectedInvoices = computed(() => invoicePool.value.filter((item) => selectedInvoiceKeys.value.includes(invoiceKey(item))));
 const selectedInvoiceTotal = computed(() => selectedInvoices.value.reduce((sum, item) => sum + Number(item.invoice_amount), 0));
+const stagedInvoices = computed(() => stagedInvoiceRefs(uploadedAttachments.value));
+const stagedInvoiceTotal = computed(() => roundCurrency(stagedInvoices.value.reduce((sum, invoice) => sum + invoice.invoice_amount, 0)));
+const formActualAmount = computed(() => roundCurrency(Number(expenseForm.actual_amount) || 0));
+const recordDifference = computed(() => roundCurrency(stagedInvoiceTotal.value - formActualAmount.value));
+const recordReady = computed(() => Boolean(expenseForm.project_name.trim() && formActualAmount.value > 0 && stagedInvoiceTotal.value >= formActualAmount.value));
+const recordConnectorTone = computed(() => {
+  if (!expenseForm.project_name.trim() || formActualAmount.value <= 0 || stagedInvoiceTotal.value <= 0) return "idle";
+  if (recordDifference.value < 0) return "waiting";
+  if (recordDifference.value > 0) return "substitute";
+  return "ready";
+});
+const recordConnectorLabel = computed(() => {
+  if (!expenseForm.project_name.trim() || formActualAmount.value <= 0) return "填写花费";
+  if (stagedInvoiceTotal.value <= 0) return "等待发票";
+  if (recordDifference.value < 0) return `还差 ${formatCurrency(Math.abs(recordDifference.value))}`;
+  if (recordDifference.value > 0) return "替票记录";
+  return "可以记录";
+});
 const totalAfterMatch = computed(() => {
   const expense = selectedExpense.value;
   if (!expense) return 0;
@@ -127,6 +154,41 @@ function removeSelectedInvoice(key: string) {
   selectedInvoiceKeys.value = selectedInvoiceKeys.value.filter((item) => item !== key);
 }
 
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function invoiceKeysForAttachmentIds(attachmentIds: number[]): string[] {
+  const idSet = new Set(attachmentIds);
+  return invoicePool.value.filter((item) => idSet.has(item.attachment_id) && item.remaining_amount > 0).map(invoiceKey);
+}
+
+function invoiceItemsOfAttachment(attachment: Attachment): Array<Record<string, unknown>> {
+  const items = attachment.ocr_result.invoice_items;
+  return Array.isArray(items) ? (items as Array<Record<string, unknown>>) : [];
+}
+
+function stagedInvoiceRefs(attachments: Attachment[]): StagedInvoiceReference[] {
+  return attachments.flatMap((attachment) =>
+    invoiceItemsOfAttachment(attachment)
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => typeof item.amount === "number" && item.amount > 0)
+      .map(({ item, index }) => ({
+        attachment_id: attachment.id,
+        invoice_item_index: index,
+        invoice_amount: Number(item.amount)
+      }))
+  );
+}
+
+function clearUploadedAttachments(attachments: Attachment[]) {
+  const clearedIds = new Set(attachments.map((attachment) => attachment.id));
+  attachments.forEach((attachment) => {
+    if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url);
+  });
+  uploadedAttachments.value = uploadedAttachments.value.filter((attachment) => !clearedIds.has(attachment.id));
+}
+
 function attachmentDeleteKey(expenseId: number, attachmentId: number): string {
   return `${expenseId}:${attachmentId}`;
 }
@@ -187,8 +249,8 @@ async function handleTransactionFiles(event: Event) {
   }
 }
 
-async function submitExpense(payload?: DraftExpenseCreatePayload) {
-  const data = payload ?? {
+function expensePayloadFromForm(): DraftExpenseCreatePayload | null {
+  const data = {
     project_name: expenseForm.project_name.trim(),
     actual_amount: Number(expenseForm.actual_amount),
     expense_month: expenseForm.expense_month,
@@ -196,21 +258,31 @@ async function submitExpense(payload?: DraftExpenseCreatePayload) {
   };
   if (!data.project_name) {
     error.value = "请填写项目名称。";
-    return;
+    return null;
   }
   if (!data.actual_amount || data.actual_amount <= 0) {
     error.value = "请填写金额。";
-    return;
+    return null;
   }
+  return data;
+}
+
+function resetExpenseForm() {
+  expenseForm.project_name = "";
+  expenseForm.actual_amount = "";
+  expenseForm.category = DEFAULT_EXPENSE_CATEGORY;
+}
+
+async function submitExpense(payload?: DraftExpenseCreatePayload) {
+  const data = payload ?? expensePayloadFromForm();
+  if (!data) return;
 
   savingExpense.value = true;
   error.value = "";
   success.value = "";
   try {
     const created = await createExpenseDraft(data);
-    expenseForm.project_name = "";
-    expenseForm.actual_amount = "";
-    expenseForm.category = DEFAULT_EXPENSE_CATEGORY;
+    resetExpenseForm();
     await loadWorkspace();
     selectedExpenseId.value = created.id;
     success.value = "花费项目已加入待定池";
@@ -221,11 +293,98 @@ async function submitExpense(payload?: DraftExpenseCreatePayload) {
   }
 }
 
-async function handleUploaded(attachment: Attachment) {
-  uploadedAttachments.value = [attachment, ...uploadedAttachments.value];
-  await loadWorkspace();
-  const firstNewInvoice = invoicePool.value.find((item) => item.attachment_id === attachment.id && item.remaining_amount > 0);
-  if (firstNewInvoice) selectInvoice(firstNewInvoice);
+async function handleUploaded(attachments: Attachment[]) {
+  if (!attachments.length) return;
+  error.value = "";
+  uploadedAttachments.value = [...attachments, ...uploadedAttachments.value];
+  success.value = "发票已解析，可加入发票池或随当前花费一起记录";
+}
+
+async function addUploadedInvoicesToPool() {
+  const stagedAttachments = [...uploadedAttachments.value];
+  if (!stagedAttachments.length) {
+    error.value = "请先上传发票。";
+    return;
+  }
+  if (!stagedInvoiceRefs(stagedAttachments).length) {
+    error.value = "未识别到可加入发票池的票据条目。";
+    return;
+  }
+
+  poolingInvoices.value = true;
+  error.value = "";
+  success.value = "";
+  try {
+    await addAttachmentsToInvoicePool(stagedAttachments.map((attachment) => attachment.id));
+    await loadWorkspace();
+    selectedInvoiceKeys.value = invoiceKeysForAttachmentIds(stagedAttachments.map((attachment) => attachment.id));
+    clearUploadedAttachments(stagedAttachments);
+    success.value = "发票已加入发票池";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "加入发票池失败";
+  } finally {
+    poolingInvoices.value = false;
+  }
+}
+
+async function recordCurrentItem() {
+  const data = expensePayloadFromForm();
+  if (!data) return;
+
+  const stagedAttachments = [...uploadedAttachments.value];
+  if (!stagedAttachments.length) {
+    error.value = "请先上传并解析发票，或使用“加入花费池”先保存花费。";
+    return;
+  }
+  const invoiceRefs = stagedInvoiceRefs(stagedAttachments);
+  if (!invoiceRefs.length) {
+    error.value = "发票没有识别到可绑定的票据条目，请删除后重新上传，或先单独加入花费池。";
+    return;
+  }
+
+  const invoiceTotal = roundCurrency(invoiceRefs.reduce((sum, invoice) => sum + invoice.invoice_amount, 0));
+  const actualAmount = roundCurrency(Number(data.actual_amount));
+  if (invoiceTotal < actualAmount) {
+    error.value = `票面金额还差 ${formatCurrency(actualAmount - invoiceTotal)}，请继续上传发票。`;
+    return;
+  }
+
+  let createdExpenseId: number | null = null;
+  recordingItem.value = true;
+  error.value = "";
+  success.value = "";
+  try {
+    const created = await createExpenseDraft(data);
+    createdExpenseId = created.id;
+    resetExpenseForm();
+
+    matching.value = true;
+    const isSubstitute = invoiceTotal > actualAmount;
+    const updated = await createExpenseAllocationsBatch({
+      expense_id: created.id,
+      invoices: invoiceRefs.map((invoice) => ({
+        attachment_id: invoice.attachment_id,
+        invoice_item_index: invoice.invoice_item_index
+      })),
+      note: isSubstitute ? "票面金额高于花费金额，按替票记录" : ""
+    });
+    await loadWorkspace();
+    selectedExpenseId.value = updated.remaining_amount > 0 ? updated.id : null;
+    selectedInvoiceKeys.value = [];
+    clearUploadedAttachments(stagedAttachments);
+    success.value = isSubstitute ? "已记录该笔并标记为替票" : "已记录该笔并绑定发票";
+    if (updated.remaining_amount <= 0) emit("submitted");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "记录失败";
+    error.value = createdExpenseId ? `花费已记录，绑定失败：${message}` : message;
+    if (createdExpenseId) {
+      await loadWorkspace();
+      selectedExpenseId.value = createdExpenseId;
+    }
+  } finally {
+    matching.value = false;
+    recordingItem.value = false;
+  }
 }
 
 async function removeUploaded(id: number) {
@@ -363,8 +522,8 @@ onMounted(loadWorkspace);
     <p v-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
     <p v-if="success" class="rounded-md bg-teal-50 px-3 py-2 text-sm text-teal-800">{{ success }}</p>
 
-    <!-- 录入区：花费表单 ‖ 发票上传，等高并排 -->
-    <div class="grid gap-5 xl:grid-cols-2">
+    <!-- 录入区：花费表单 -> 记录该笔 -> 发票上传 -->
+    <div class="intake-grid">
       <section class="tool-panel flex flex-col rounded-lg">
         <div class="border-b border-slate-200 px-5 py-4">
           <h2 class="section-title">记一笔花费</h2>
@@ -400,10 +559,27 @@ onMounted(loadWorkspace);
         </form>
       </section>
 
+      <div class="record-connector" :data-tone="recordConnectorTone">
+        <button
+          class="record-link-button"
+          type="button"
+          :data-tone="recordConnectorTone"
+          :disabled="recordingItem || savingExpense || matching || poolingInvoices || !recordReady"
+          @click="recordCurrentItem"
+        >
+          <Loader2 v-if="recordingItem" class="h-5 w-5 animate-spin" />
+          <Link2 v-else class="h-5 w-5" />
+          <span>{{ recordingItem ? "记录中" : "记录该笔" }}</span>
+        </button>
+        <div class="record-link-caption">{{ recordConnectorLabel }}</div>
+      </div>
+
       <InvoiceUploadPanel
         :attachments="uploadedAttachments"
         :removing-id="deletingAttachmentId"
+        :pooling="poolingInvoices"
         @uploaded="handleUploaded"
+        @add-to-pool="addUploadedInvoicesToPool"
         @remove="removeUploaded"
       />
     </div>

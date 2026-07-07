@@ -8,10 +8,12 @@ import type { Attachment } from "../types";
 const props = defineProps<{
   attachments: Attachment[];
   removingId?: number | null;
+  pooling?: boolean;
 }>();
 
 const emit = defineEmits<{
-  uploaded: [attachment: Attachment];
+  uploaded: [attachments: Attachment[]];
+  addToPool: [];
   remove: [id: number];
 }>();
 
@@ -100,17 +102,22 @@ function invoiceAmount(item: Record<string, unknown>): string {
 }
 
 async function uploadFiles(files: File[]) {
-  if (!files.length) return;
+  const allowedFiles = files.filter(isAllowedInvoiceFile);
+  if (!allowedFiles.length) {
+    error.value = "请选择 PDF 或图片文件。";
+    return;
+  }
   uploading.value = true;
-  uploadingLabel.value = files.length > 1 ? `正在上传 ${files.length} 个附件...` : "正在上传...";
+  uploadingLabel.value = allowedFiles.length > 1 ? `正在上传并识别 ${allowedFiles.length} 个附件...` : "正在上传并识别...";
   error.value = "";
   try {
-    const attachments = await uploadAttachments(files);
-    attachments.forEach((attachment, index) => {
-      const file = files[index];
+    const attachments = await uploadAttachments(allowedFiles);
+    const uploaded = attachments.map((attachment, index) => {
+      const file = allowedFiles[index];
       const previewUrl = file?.type.startsWith("image/") ? URL.createObjectURL(file) : "";
-      emit("uploaded", { ...attachment, preview_url: previewUrl });
+      return { ...attachment, preview_url: previewUrl };
     });
+    emit("uploaded", uploaded);
   } catch (err) {
     error.value = err instanceof Error ? err.message : "上传失败";
   } finally {
@@ -160,7 +167,7 @@ async function handleDrop(event: DragEvent) {
   <section class="tool-panel rounded-lg">
     <div class="border-b border-slate-200 px-5 py-4">
       <h2 class="section-title">上传发票附件</h2>
-      <p class="muted mt-1">拖拽或点击上传，支持 PDF 和图片，自动识别票据条目。</p>
+      <p class="muted mt-1">拖拽或点击上传，支持 PDF 和图片，上传后自动识别票据条目。</p>
     </div>
 
     <div class="space-y-4 p-5">
@@ -180,9 +187,15 @@ async function handleDrop(event: DragEvent) {
         <span class="mt-3 text-sm font-medium text-slate-800">
           {{ uploading ? uploadingLabel : dragging ? "松开上传这些发票" : "拖拽或点击上传发票" }}
         </span>
-        <span class="mt-1 text-xs text-slate-500">可一次拖入或选择多个 PDF / 图片，上传后自动识别票据条目并查重</span>
+        <span class="mt-1 text-xs text-slate-500">可一次拖入或选择多个 PDF / 图片，上传后先解析，再由按钮决定去向</span>
       </button>
       <input ref="inputRef" class="hidden" type="file" accept="image/*,.pdf" multiple @change="handleFileChange" />
+
+      <button class="secondary-button w-full justify-center" type="button" :disabled="uploading || pooling || !attachments.length" @click="$emit('addToPool')">
+        <Loader2 v-if="uploading || pooling" class="h-4 w-4 animate-spin" />
+        <FileUp v-else class="h-4 w-4" />
+        {{ pooling ? "正在加入..." : "加入发票池" }}
+      </button>
 
       <p v-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
 
@@ -202,7 +215,7 @@ async function handleDrop(event: DragEvent) {
       </div>
 
       <div v-if="!attachments.length" class="guide-hint mt-2">
-        上传发票后，系统会自动识别票据条目并进入发票池等待匹配。
+        上传发票后，可以加入发票池，也可以随当前花费一起记录。
       </div>
 
       <div v-for="attachment in attachments" :key="attachment.id" class="rounded-lg border border-slate-200 bg-white">

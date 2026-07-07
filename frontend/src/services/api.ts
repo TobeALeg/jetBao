@@ -126,6 +126,13 @@ export async function deleteAttachment(id: number): Promise<{ deleted: boolean }
   });
 }
 
+export async function addAttachmentsToInvoicePool(attachmentIds: number[]): Promise<Attachment[]> {
+  return request("/attachments/pool", {
+    method: "POST",
+    body: JSON.stringify({ attachment_ids: attachmentIds })
+  });
+}
+
 export async function createExpense(payload: ExpenseCreatePayload): Promise<Expense> {
   return request("/expenses", {
     method: "POST",

@@ -36,6 +36,7 @@ def serialize_attachment(row) -> AttachmentResponse:
         file_size=row["file_size"],
         duplicate_count=row["duplicate_count"],
         is_duplicate=row["duplicate_count"] > 0,
+        pool_status=row["pool_status"],
         ocr_status=row["ocr_status"],
         ocr_result=json.loads(row["ocr_result"] or "{}"),
         created_at=row["created_at"],
@@ -420,6 +421,7 @@ def list_invoice_pool(request: Request, user=Depends(get_current_user)) -> list[
             FROM attachments
             WHERE user_id = ?
               AND expense_id IS NULL
+              AND pool_status = 'pooled'
               AND NOT EXISTS (
                   SELECT 1
                   FROM expense_attachments

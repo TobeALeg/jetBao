@@ -22,6 +22,7 @@ export interface Attachment {
   file_size: number;
   duplicate_count: number;
   is_duplicate: boolean;
+  pool_status: "staged" | "pooled";
   ocr_status: string;
   ocr_result: Record<string, unknown>;
   created_at: string;

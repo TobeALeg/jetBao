@@ -60,6 +60,7 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER NOT NULL REFERENCES users(id),
                     expense_id INTEGER REFERENCES expenses(id) ON DELETE SET NULL,
+                    pool_status TEXT NOT NULL DEFAULT 'pooled',
                     original_filename TEXT NOT NULL,
                     stored_path TEXT NOT NULL,
                     file_hash TEXT NOT NULL,
@@ -109,6 +110,7 @@ class Database:
 
     def _migrate(self, connection: sqlite3.Connection) -> None:
         self._add_column_if_missing(connection, "users", "is_active", "INTEGER NOT NULL DEFAULT 1")
+        self._add_column_if_missing(connection, "attachments", "pool_status", "TEXT NOT NULL DEFAULT 'pooled'")
         for column, definition in (
             ("project_name", "TEXT NOT NULL DEFAULT ''"),
             ("invoice_buyer", "TEXT NOT NULL DEFAULT ''"),

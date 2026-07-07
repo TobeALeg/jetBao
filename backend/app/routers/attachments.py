@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.dependencies import get_current_user
-from app.schemas import AttachmentResponse
+from app.schemas import AttachmentPoolRequest, AttachmentResponse
 from app.services.ocr import OcrService, OcrServiceConfig
 
 
@@ -25,6 +25,7 @@ def _attachment_response(row) -> AttachmentResponse:
         file_size=row["file_size"],
         duplicate_count=row["duplicate_count"],
         is_duplicate=row["duplicate_count"] > 0,
+        pool_status=row["pool_status"],
         ocr_status=row["ocr_status"],
         ocr_result=json.loads(row["ocr_result"] or "{}"),
         created_at=row["created_at"],
@@ -74,9 +75,9 @@ def _save_and_recognize_attachment(request: Request, file: UploadFile, user) -> 
             """
             INSERT INTO attachments (
                 user_id, original_filename, stored_path, file_hash, file_size,
-                duplicate_count, ocr_status, ocr_result
+                duplicate_count, pool_status, ocr_status, ocr_result
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'staged', ?, ?)
             """,
             (
                 user["id"],
@@ -111,6 +112,73 @@ def upload_attachments(
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少上传一个附件")
     return [_save_and_recognize_attachment(request, file, user) for file in files]
+
+
+@router.post("/attachments/pool", response_model=list[AttachmentResponse])
+def add_attachments_to_invoice_pool(
+    payload: AttachmentPoolRequest,
+    request: Request,
+    user=Depends(get_current_user),
+) -> list[AttachmentResponse]:
+    attachment_ids = list(dict.fromkeys(payload.attachment_ids))
+    placeholders = ",".join("?" for _ in attachment_ids)
+    with request.app.state.db.connect() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT *
+            FROM attachments
+            WHERE id IN ({placeholders}) AND user_id = ?
+            """,
+            (*attachment_ids, user["id"]),
+        ).fetchall()
+        if len(rows) != len(attachment_ids):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="附件不存在或无权使用")
+
+        linked = connection.execute(
+            f"""
+            SELECT COUNT(*) AS count
+            FROM attachments
+            WHERE id IN ({placeholders})
+              AND (expense_id IS NOT NULL OR EXISTS (
+                  SELECT 1
+                  FROM expense_attachments
+                  WHERE expense_attachments.attachment_id = attachments.id
+              ))
+            """,
+            tuple(attachment_ids),
+        ).fetchone()
+        if linked["count"] > 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已挂到花费记录的附件不能加入发票池")
+
+        allocated = connection.execute(
+            f"""
+            SELECT COUNT(*) AS count
+            FROM expense_invoice_allocations
+            WHERE attachment_id IN ({placeholders})
+            """,
+            tuple(attachment_ids),
+        ).fetchone()
+        if allocated["count"] > 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已匹配到报销项目的发票不能加入发票池")
+
+        connection.execute(
+            f"""
+            UPDATE attachments
+            SET pool_status = 'pooled'
+            WHERE id IN ({placeholders}) AND user_id = ?
+            """,
+            (*attachment_ids, user["id"]),
+        )
+        updated = connection.execute(
+            f"""
+            SELECT *
+            FROM attachments
+            WHERE id IN ({placeholders}) AND user_id = ?
+            ORDER BY created_at DESC
+            """,
+            (*attachment_ids, user["id"]),
+        ).fetchall()
+    return [_attachment_response(row) for row in updated]
 
 
 @router.get("/attachments/{attachment_id}/content")

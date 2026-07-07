@@ -47,7 +47,13 @@ def upload_file(
     )
 
 
-def insert_ocr_attachment(client: TestClient, user_id: int, invoice_items: list[dict], filename: str = "ocr.pdf") -> int:
+def insert_ocr_attachment(
+    client: TestClient,
+    user_id: int,
+    invoice_items: list[dict],
+    filename: str = "ocr.pdf",
+    pool_status: str = "pooled",
+) -> int:
     stored_path = client.app.state.settings.upload_dir / filename
     stored_path.parent.mkdir(parents=True, exist_ok=True)
     stored_path.write_bytes(f"test file for {filename}".encode())
@@ -56,9 +62,9 @@ def insert_ocr_attachment(client: TestClient, user_id: int, invoice_items: list[
             """
             INSERT INTO attachments (
                 user_id, original_filename, stored_path, file_hash, file_size,
-                duplicate_count, ocr_status, ocr_result
+                duplicate_count, pool_status, ocr_status, ocr_result
             )
-            VALUES (?, ?, ?, ?, ?, 0, 'success', ?)
+            VALUES (?, ?, ?, ?, ?, 0, ?, 'success', ?)
             """,
             (
                 user_id,
@@ -66,6 +72,7 @@ def insert_ocr_attachment(client: TestClient, user_id: int, invoice_items: list[
                 str(stored_path),
                 f"hash-{filename}",
                 stored_path.stat().st_size,
+                pool_status,
                 json.dumps({"invoice_items": invoice_items}, ensure_ascii=False),
             ),
         )
@@ -855,6 +862,86 @@ def test_batch_upload_accepts_multiple_files(tmp_path, monkeypatch):
     assert len(body) == 2
     assert body[0]["ocr_status"] == "not_configured"
     assert body[1]["ocr_status"] == "not_configured"
+    assert body[0]["pool_status"] == "staged"
+    assert body[1]["pool_status"] == "staged"
+
+
+def test_staged_invoice_enters_pool_only_after_button_action(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    alice = auth_headers(client, "alice", "alice123")
+    attachment_id = insert_ocr_attachment(
+        client,
+        user_id=2,
+        invoice_items=[
+            {
+                "buyer": "上海示例科技有限公司",
+                "amount": 88.6,
+                "invoice_number": "POOL-1",
+                "date": "2026-05-18",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="staged-invoice.pdf",
+        pool_status="staged",
+    )
+
+    pool = client.get("/api/invoice-pool", headers=alice)
+    assert pool.status_code == 200
+    assert all(item["attachment_id"] != attachment_id for item in pool.json())
+
+    publish = client.post("/api/attachments/pool", headers=alice, json={"attachment_ids": [attachment_id]})
+    assert publish.status_code == 200
+    assert publish.json()[0]["pool_status"] == "pooled"
+
+    pool_after = client.get("/api/invoice-pool", headers=alice)
+    assert any(item["attachment_id"] == attachment_id for item in pool_after.json())
+
+
+def test_staged_invoice_can_bind_directly_without_entering_pool(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    alice = auth_headers(client, "alice", "alice123")
+    attachment_id = insert_ocr_attachment(
+        client,
+        user_id=2,
+        invoice_items=[
+            {
+                "buyer": "上海示例科技有限公司",
+                "amount": 88.6,
+                "invoice_number": "DIRECT-1",
+                "date": "2026-05-18",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="direct-staged-invoice.pdf",
+        pool_status="staged",
+    )
+
+    draft = client.post(
+        "/api/expenses/drafts",
+        headers=alice,
+        json={
+            "project_name": "客户拜访打车",
+            "actual_amount": 88.6,
+            "expense_month": "2026-05",
+            "category": "差旅交通",
+        },
+    )
+    assert draft.status_code == 200
+
+    match = client.post(
+        "/api/expense-allocations/batch",
+        headers=alice,
+        json={
+            "expense_id": draft.json()["id"],
+            "invoices": [{"attachment_id": attachment_id, "invoice_item_index": 0}],
+            "note": "",
+        },
+    )
+    assert match.status_code == 200
+    assert match.json()["status"] == "submitted"
+
+    pool = client.get("/api/invoice-pool", headers=alice)
+    assert all(item["attachment_id"] != attachment_id for item in pool.json())
 
 
 def test_batch_expense_creates_one_record_per_invoice_item(tmp_path, monkeypatch):
