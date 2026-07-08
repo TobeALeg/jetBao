@@ -96,13 +96,15 @@ def create_invoice_backed_expense(
     category: str = "市场活动",
     month: str = "2026-05",
     invoice_number: str = "INV-OK",
+    buyer: str = "上海山途远智信息科技有限公司",
+    buyer_confirmed: bool = False,
 ) -> dict:
     attachment_id = insert_ocr_attachment(
         client,
         user_id=user_id,
         invoice_items=[
             {
-                "buyer": "上海山途远智信息科技有限公司",
+                "buyer": buyer,
                 "amount": amount,
                 "invoice_number": invoice_number,
                 "date": "2026-05-20",
@@ -130,6 +132,7 @@ def create_invoice_backed_expense(
             "attachment_id": attachment_id,
             "invoice_item_index": 0,
             "note": "",
+            "buyer_confirmed": buyer_confirmed,
         },
     )
     assert match.status_code == 200
@@ -167,7 +170,7 @@ def test_bootstrap_admin_creates_first_admin_without_demo_users(tmp_path, monkey
             "BOOTSTRAP_ADMIN_USERNAME": "owner",
             "BOOTSTRAP_ADMIN_PASSWORD": "owner-pass",
             "BOOTSTRAP_ADMIN_EMPLOYEE_NAME": "Owner",
-            "BOOTSTRAP_ADMIN_COMPANY_ENTITY": "上海测试科技有限公司",
+            "BOOTSTRAP_ADMIN_COMPANY_ENTITY": "上海山途远智信息科技有限公司",
         },
     )
 
@@ -188,7 +191,7 @@ def test_dandi_username_is_not_auto_promoted_on_restart(tmp_path, monkeypatch):
             "BOOTSTRAP_ADMIN_USERNAME": "owner",
             "BOOTSTRAP_ADMIN_PASSWORD": "owner-pass",
             "BOOTSTRAP_ADMIN_EMPLOYEE_NAME": "Owner",
-            "BOOTSTRAP_ADMIN_COMPANY_ENTITY": "上海测试科技有限公司",
+            "BOOTSTRAP_ADMIN_COMPANY_ENTITY": "上海山途远智信息科技有限公司",
         },
     )
     owner = auth_headers(client, "owner", "owner-pass")
@@ -686,6 +689,82 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
     assert by_attachment[first_attachment_id]["remaining_amount"] == 0
     assert by_attachment[second_attachment_id]["allocated_amount"] == 300
     assert by_attachment[second_attachment_id]["remaining_amount"] == 0
+
+
+def test_invoice_buyer_can_match_either_allowed_company_entity(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    dandi = auth_headers(client, "Dandi", "dandi123")
+
+    submitted = create_invoice_backed_expense(
+        client,
+        dandi,
+        user_id=2,
+        amount=100,
+        project_name="企业服务资料",
+        category="办公采购",
+        invoice_number="ENTITY-2",
+        buyer="山途远智（上海）企业服务有限公司",
+    )
+
+    assert submitted["status"] == "submitted"
+    assert submitted["invoice_buyer"] == "山途远智（上海）企业服务有限公司"
+
+
+def test_partial_invoice_buyer_match_requires_manual_confirmation(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    dandi = auth_headers(client, "Dandi", "dandi123")
+    attachment_id = insert_ocr_attachment(
+        client,
+        user_id=2,
+        invoice_items=[
+            {
+                "buyer": "山途远智",
+                "amount": 100,
+                "invoice_number": "PARTIAL-BUYER",
+                "date": "2026-05-21",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="partial-buyer.pdf",
+    )
+    draft = client.post(
+        "/api/expenses/drafts",
+        headers=dandi,
+        json={
+            "project_name": "客户资料打印",
+            "actual_amount": 100,
+            "expense_month": "2026-05",
+            "category": "办公采购",
+        },
+    )
+    assert draft.status_code == 200
+
+    without_confirmation = client.post(
+        "/api/expense-allocations",
+        headers=dandi,
+        json={
+            "expense_id": draft.json()["id"],
+            "attachment_id": attachment_id,
+            "invoice_item_index": 0,
+            "note": "",
+        },
+    )
+    assert without_confirmation.status_code == 400
+    assert "人工确认" in without_confirmation.json()["detail"]
+
+    with_confirmation = client.post(
+        "/api/expense-allocations",
+        headers=dandi,
+        json={
+            "expense_id": draft.json()["id"],
+            "attachment_id": attachment_id,
+            "invoice_item_index": 0,
+            "note": "",
+            "buyer_confirmed": True,
+        },
+    )
+    assert with_confirmation.status_code == 200
+    assert with_confirmation.json()["status"] == "submitted"
 
 
 def test_submitted_expense_cannot_be_changed_by_employee(tmp_path, monkeypatch):
@@ -1214,7 +1293,7 @@ def test_admin_can_create_update_and_deactivate_user(tmp_path, monkeypatch):
             "password": "carol123",
             "role": "employee",
             "employee_name": "Carol Wang",
-            "company_entity": "北京示例科技有限公司",
+            "company_entity": "上海山途远智信息科技有限公司",
         },
     )
     assert create.status_code == 200
@@ -1223,10 +1302,10 @@ def test_admin_can_create_update_and_deactivate_user(tmp_path, monkeypatch):
     update = client.patch(
         f"/api/admin/users/{user_id}",
         headers=admin,
-        json={"company_entity": "深圳示例科技有限公司", "password": "newpass123"},
+        json={"company_entity": "山途远智（上海）企业服务有限公司", "password": "newpass123"},
     )
     assert update.status_code == 200
-    assert update.json()["company_entity"] == "深圳示例科技有限公司"
+    assert update.json()["company_entity"] == "山途远智（上海）企业服务有限公司"
 
     carol = auth_headers(client, "carol", "newpass123")
     assert client.get("/api/me", headers=carol).status_code == 200
@@ -1236,3 +1315,23 @@ def test_admin_can_create_update_and_deactivate_user(tmp_path, monkeypatch):
     assert deactivate.json()["is_active"] is False
     disabled_login = client.post("/api/auth/login", json={"username": "carol", "password": "newpass123"})
     assert disabled_login.status_code == 403
+
+
+def test_admin_user_company_entity_must_be_allowed(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    admin = auth_headers(client, "admin", "admin123")
+
+    create = client.post(
+        "/api/admin/users",
+        headers=admin,
+        json={
+            "username": "bad-company",
+            "password": "bad123",
+            "role": "employee",
+            "employee_name": "Bad Company",
+            "company_entity": "杭州示例信息有限公司",
+        },
+    )
+
+    assert create.status_code == 400
+    assert "公司主体" in create.json()["detail"]

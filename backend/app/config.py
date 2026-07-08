@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.company_entities import is_allowed_company_entity, normalize_company_entity
+
 
 def _load_env_file(project_dir: Path) -> None:
     try:
@@ -85,9 +87,12 @@ def _bootstrap_admin_from_env() -> BootstrapAdmin | None:
         return None
     if not username or not password:
         raise ValueError("BOOTSTRAP_ADMIN_USERNAME 和 BOOTSTRAP_ADMIN_PASSWORD 必须同时设置")
+    company_entity = normalize_company_entity(os.getenv("BOOTSTRAP_ADMIN_COMPANY_ENTITY", ""))
+    if not is_allowed_company_entity(company_entity):
+        raise ValueError("BOOTSTRAP_ADMIN_COMPANY_ENTITY 必须是系统允许的公司主体")
     return BootstrapAdmin(
         username=username,
         password=password,
         employee_name=os.getenv("BOOTSTRAP_ADMIN_EMPLOYEE_NAME", username).strip() or username,
-        company_entity=os.getenv("BOOTSTRAP_ADMIN_COMPANY_ENTITY", "未配置公司主体").strip() or "未配置公司主体",
+        company_entity=company_entity,
     )

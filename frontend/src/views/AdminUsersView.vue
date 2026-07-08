@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from "vue";
 import { Save, UserPlus } from "lucide-vue-next";
 import { createUser, deactivateUser, listUsers, updateUser } from "../services/api";
+import { COMPANY_ENTITIES } from "../constants/companyEntities";
 import type { AdminUser, AdminUserCreatePayload, Role } from "../types";
 
 const users = ref<AdminUser[]>([]);
@@ -112,7 +113,10 @@ onMounted(load);
       <form class="grid gap-3 lg:grid-cols-6" @submit.prevent="create">
         <input v-model="newUser.username" class="field-input" placeholder="用户名" required />
         <input v-model="newUser.employee_name" class="field-input" placeholder="员工姓名" required />
-        <input v-model="newUser.company_entity" class="field-input lg:col-span-2" placeholder="绑定企业抬头" required />
+        <select v-model="newUser.company_entity" class="field-input lg:col-span-2" required>
+          <option value="" disabled>选择公司主体</option>
+          <option v-for="company in COMPANY_ENTITIES" :key="company" :value="company">{{ company }}</option>
+        </select>
         <select v-model="newUser.role" class="field-input">
           <option value="employee">员工</option>
           <option value="admin">管理员</option>
@@ -169,7 +173,9 @@ onMounted(load);
                 </select>
               </td>
               <td class="px-5 py-4">
-                <input v-model="user.company_entity" class="field-input min-w-72" />
+                <select v-model="user.company_entity" class="field-input min-w-72">
+                  <option v-for="company in COMPANY_ENTITIES" :key="company" :value="company">{{ company }}</option>
+                </select>
               </td>
               <td class="px-5 py-4">
                 <label class="flex h-10 items-center gap-2 text-sm text-slate-700">

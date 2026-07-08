@@ -2,11 +2,13 @@
 import { computed, ref } from "vue";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, FileUp, Image, Loader2 } from "lucide-vue-next";
 import { uploadAttachments } from "../services/api";
+import { buyerMatchStatus, isDifferentAllowedBuyer } from "../constants/companyEntities";
 import { formatCurrency, formatFileSize } from "../utils/format";
 import type { Attachment } from "../types";
 
 const props = defineProps<{
   attachments: Attachment[];
+  currentCompany: string;
   removingId?: number | null;
   pooling?: boolean;
 }>();
@@ -100,6 +102,23 @@ function invoiceLabel(item: Record<string, unknown>): string {
 function invoiceAmount(item: Record<string, unknown>): string {
   const value = item.amount;
   return typeof value === "number" ? formatCurrency(value) : "-";
+}
+
+function invoiceBuyerStatus(item: Record<string, unknown>): string {
+  const buyer = invoiceText(item, "buyer");
+  if (buyer === "-") return "未识别抬头";
+  const status = buyerMatchStatus(buyer);
+  if (status === "partial") return `${buyer}（需确认）`;
+  if (status === "none") return `${buyer}（不可用）`;
+  return isDifferentAllowedBuyer(buyer, props.currentCompany) ? `${buyer}（可用抬头）` : buyer;
+}
+
+function invoiceBuyerTone(item: Record<string, unknown>): "ok" | "warn" | "danger" {
+  const buyer = invoiceText(item, "buyer");
+  const status = buyer === "-" ? "none" : buyerMatchStatus(buyer);
+  if (status === "exact" && !isDifferentAllowedBuyer(buyer, props.currentCompany)) return "ok";
+  if (status === "exact" || status === "partial") return "warn";
+  return "danger";
 }
 
 function toggleExpanded(id: number) {
@@ -278,6 +297,19 @@ async function handleDrop(event: DragEvent) {
               <div>日期：{{ invoiceText(item, "date") }}</div>
               <div>号码：{{ invoiceText(item, "invoice_number") }}</div>
               <div>销售方：{{ invoiceText(item, "seller") }}</div>
+              <div class="flex items-center justify-end gap-1.5 sm:justify-start">
+                <span
+                  :class="{
+                    'text-teal-700': invoiceBuyerTone(item) === 'ok',
+                    'text-amber-700': invoiceBuyerTone(item) === 'warn',
+                    'text-rose-700': invoiceBuyerTone(item) === 'danger'
+                  }"
+                >
+                  购买方：{{ invoiceBuyerStatus(item) }}
+                </span>
+                <CheckCircle2 v-if="invoiceBuyerTone(item) === 'ok'" class="h-3.5 w-3.5 text-teal-700" />
+                <AlertTriangle v-else class="h-3.5 w-3.5" :class="invoiceBuyerTone(item) === 'warn' ? 'text-amber-600' : 'text-rose-600'" />
+              </div>
             </div>
           </div>
         </div>

@@ -230,7 +230,7 @@ class Database:
         if existing:
             return
         users = [
-            ("admin", "admin123", "admin", "财务管理员", "上海示例科技有限公司"),
+            ("admin", "admin123", "admin", "财务管理员", "上海山途远智信息科技有限公司"),
             ("Dandi", "dandi123", "admin", "艾丹迪", "上海山途远智信息科技有限公司"),
             ("Ouyang", "ouyang123", "admin", "欧阳", "上海山途远智信息科技有限公司"),
         ]

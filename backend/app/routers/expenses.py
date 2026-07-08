@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import re
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from app.company_entities import invoice_buyer_match_status
 from app.dependencies import get_current_user
 from app.schemas import (
     AttachmentResponse,
@@ -24,7 +24,6 @@ from app.schemas import (
 
 
 router = APIRouter(prefix="/api", tags=["expenses"])
-TITLE_NOISE = re.compile(r"[\s:：,，.。()（）\[\]【】《》<>“”\"']")
 
 
 def serialize_attachment(row) -> AttachmentResponse:
@@ -158,19 +157,6 @@ def _ensure_expense_is_draft(expense: sqlite3.Row) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已提交记录不能继续修改")
 
 
-def company_titles_match(recognized_buyer: str, expected_company: str) -> bool:
-    recognized = _normalize_company_title(recognized_buyer)
-    expected = _normalize_company_title(expected_company)
-    if not recognized or not expected:
-        return False
-    return recognized == expected or recognized in expected or expected in recognized
-
-
-def _normalize_company_title(value: str) -> str:
-    value = value.replace("购买方", "").replace("付款方", "").replace("名称", "")
-    return TITLE_NOISE.sub("", value)
-
-
 def _attachment_rows_for_expense(connection: sqlite3.Connection, expense_id: int) -> list[sqlite3.Row]:
     return connection.execute(
         """
@@ -274,12 +260,18 @@ def _invoice_type(item: dict[str, Any]) -> str:
     return _invoice_text(item, "sub_type_description") or _invoice_text(item, "type_description") or "票据"
 
 
-def _validate_invoice_item(item: dict[str, Any], expected_company: str) -> None:
+def _validate_invoice_item(item: dict[str, Any], buyer_confirmed: bool = False) -> None:
     buyer = _invoice_text(item, "buyer")
     if not buyer:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="票据未识别到企业抬头，不能提交")
-    if not company_titles_match(buyer, expected_company):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="票据抬头与员工绑定企业不一致，不能提交")
+    match_status = invoice_buyer_match_status(buyer)
+    if match_status == "exact":
+        return
+    if match_status == "partial":
+        if buyer_confirmed:
+            return
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="票据抬头仅部分命中公司主体，请人工确认后再提交")
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="票据抬头不在可用公司主体内，不能提交")
 
 
 def _sync_expense_after_allocation(connection: sqlite3.Connection, expense_id: int) -> None:
@@ -562,7 +554,7 @@ def create_expense_allocation(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="附件不存在")
 
         invoice_item = _invoice_item_from_attachment(attachment, payload.invoice_item_index)
-        _validate_invoice_item(invoice_item, user["company_entity"])
+        _validate_invoice_item(invoice_item, payload.buyer_confirmed)
         _create_allocation(
             connection,
             expense,
@@ -600,7 +592,7 @@ def create_expense_allocations_batch(
             if attachment is None:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="附件不存在")
             invoice_item = _invoice_item_from_attachment(attachment, ref.invoice_item_index)
-            _validate_invoice_item(invoice_item, user["company_entity"])
+            _validate_invoice_item(invoice_item, payload.buyer_confirmed)
             invoice_rows.append((attachment, invoice_item, ref.invoice_item_index))
 
         existing_total = _allocated_amount_for_expense(connection, expense["id"])
@@ -712,7 +704,7 @@ def complete_expense_draft(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="附件不存在")
 
         invoice_item = _invoice_item_from_attachment(attachment, payload.invoice_item_index)
-        _validate_invoice_item(invoice_item, user["company_entity"])
+        _validate_invoice_item(invoice_item, payload.buyer_confirmed)
         invoice_amount = _invoice_amount(invoice_item)
         actual_amount = round(float(payload.actual_amount), 2)
         reason = payload.substitute_reason.strip()
@@ -775,7 +767,7 @@ def create_expenses_batch(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="附件不存在")
 
             invoice_item = _invoice_item_from_attachment(attachment, item_payload.invoice_item_index)
-            _validate_invoice_item(invoice_item, user["company_entity"])
+            _validate_invoice_item(invoice_item, item_payload.buyer_confirmed)
             invoice_amount = _invoice_amount(invoice_item)
             reason = item_payload.substitute_reason.strip()
             if item_payload.is_substitute:

@@ -86,6 +86,7 @@ export interface ExpenseItemCreatePayload {
   is_substitute: boolean;
   substitute_reason: string;
   note: string;
+  buyer_confirmed?: boolean;
 }
 
 export interface DraftExpenseCompletePayload {
@@ -97,6 +98,7 @@ export interface DraftExpenseCompletePayload {
   is_substitute: boolean;
   substitute_reason: string;
   note: string;
+  buyer_confirmed?: boolean;
 }
 
 export interface InvoicePoolItem {
@@ -121,6 +123,7 @@ export interface ExpenseAllocationCreatePayload {
   invoice_item_index: number;
   allocated_amount?: number;
   note: string;
+  buyer_confirmed?: boolean;
 }
 
 export interface ExpenseInvoiceReferencePayload {
@@ -132,6 +135,7 @@ export interface ExpenseAllocationBatchCreatePayload {
   expense_id: number;
   invoices: ExpenseInvoiceReferencePayload[];
   note: string;
+  buyer_confirmed?: boolean;
 }
 
 export interface ExpenseAttachmentLinkPayload {

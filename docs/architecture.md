@@ -5,6 +5,7 @@
 ### module relationship
 
 - `users`：真实员工身份、权限角色和登录密码哈希；员工可通过 `/api/me/password` 修改自己的密码。
+- `company_entities`：系统允许的两个公司主体为 `上海山途远智信息科技有限公司`、`山途远智（上海）企业服务有限公司`；用户创建、用户更新和 bootstrap 管理员都必须使用其中之一。
 - `SEED_DEMO_USERS` 默认关闭；真实部署通过 `BOOTSTRAP_ADMIN_*` 在空用户表时创建第一个管理员，不再按固定用户名自动提权。
 - `expenses`：花费项目统一事实表，包含 `draft` 和 `submitted` 两种状态。
 - `attachments`：上传文件，既可以是花费项目的交易记录，也可以被 OCR 识别为发票凭证；`pool_status = staged` 表示已上传已 OCR 但未入池，`pooled` 表示可进入发票池匹配。
@@ -20,7 +21,7 @@
 1. 花费池：前端提交项目名称、金额、月份、类别，后端写入 `expenses.status = draft`；后端不提供无发票匹配的直接 `submitted` 创建入口。
 2. 交易记录附件：用户在我的报销页或报销整理工作栏上传付款截图、订单截图等图片，前端先调用 `/api/attachments/batch`，再通过 `/api/expenses/{expense_id}/attachments` 写入 `expense_attachments`。
 3. 发票暂存：用户上传发票附件时，后端立即保存文件并 OCR，写入 `attachments.pool_status = staged`。
-4. 工作栏匹配：用户为同一条花费选择一张或多张发票，后端写入 `expense_invoice_allocations`；同一发票条目不能再匹配其他花费。
+4. 工作栏匹配：用户为同一条花费选择一张或多张发票，后端写入 `expense_invoice_allocations`；同一发票条目不能再匹配其他花费。发票购买方精确命中任一允许公司主体即可提交；只部分命中时必须带 `buyer_confirmed` 人工确认标记。
 5. 发票池：用户点击“加入发票池”后，`/api/attachments/pool` 把附件改成 `pool_status = pooled`；`/api/invoice-pool` 只返回 `pooled` 且未挂到 `expense_attachments` 的附件，并返回票面金额、已匹配金额和剩余可用金额。
 6. 同轮按钮驱动：“记录该笔”创建花费并直接用当前 staged 发票调用 `/api/expense-allocations/batch` 写入绑定关系，不需要先进入发票池；票面金额小于花费金额时不创建记录，继续等待上传；相等时直接提交；高于时自动带替票说明提交。
 7. 状态更新：花费项目已匹配票面合计达到实际金额后，后端把 `expenses.status` 更新为 `submitted`；否则保持 `draft`。员工 UI 不提供小额发票先保存部分匹配的入口；如果票面合计超过实际金额，必须填写说明并标记为替票。

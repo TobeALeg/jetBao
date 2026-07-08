@@ -77,6 +77,7 @@ class ExpenseAllocationCreateRequest(BaseModel):
     invoice_item_index: int = Field(ge=0)
     allocated_amount: float | None = Field(default=None, gt=0)
     note: str = ""
+    buyer_confirmed: bool = False
 
 
 class ExpenseInvoiceReference(BaseModel):
@@ -88,6 +89,7 @@ class ExpenseAllocationBatchCreateRequest(BaseModel):
     expense_id: int
     invoices: list[ExpenseInvoiceReference] = Field(min_length=1)
     note: str = ""
+    buyer_confirmed: bool = False
 
 
 class ExpenseAttachmentLinkRequest(BaseModel):
@@ -114,6 +116,7 @@ class ExpenseItemCreateRequest(BaseModel):
     is_substitute: bool = False
     substitute_reason: str = ""
     note: str = ""
+    buyer_confirmed: bool = False
 
 
 class ExpenseBatchCreateRequest(BaseModel):
@@ -129,6 +132,7 @@ class DraftExpenseCompleteRequest(BaseModel):
     is_substitute: bool = False
     substitute_reason: str = ""
     note: str = ""
+    buyer_confirmed: bool = False
 
 
 class ExpenseResponse(BaseModel):

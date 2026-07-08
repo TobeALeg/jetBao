@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { CheckCircle2, ImagePlus, Link2, Loader2, PlusCircle, ReceiptText, Trash2, X } from "lucide-vue-next";
+import { AlertTriangle, CheckCircle2, ImagePlus, Link2, Loader2, PlusCircle, ReceiptText, Trash2, X } from "lucide-vue-next";
 import AttachmentThumb from "../components/AttachmentThumb.vue";
 import InvoiceUploadPanel from "../components/InvoiceUploadPanel.vue";
+import { buyerMatchStatus, isDifferentAllowedBuyer } from "../constants/companyEntities";
 import { DEFAULT_EXPENSE_CATEGORY, EXPENSE_CATEGORIES } from "../constants/expenseCategories";
 import {
   addAttachmentsToInvoicePool,
@@ -60,6 +61,7 @@ type StagedInvoiceReference = {
   attachment_id: number;
   invoice_item_index: number;
   invoice_amount: number;
+  invoice_buyer: string;
 };
 
 const selectedExpense = computed(() => expenses.value.find((item) => item.id === selectedExpenseId.value) ?? null);
@@ -161,9 +163,29 @@ function stagedInvoiceRefs(attachments: Attachment[]): StagedInvoiceReference[] 
       .map(({ item, index }) => ({
         attachment_id: attachment.id,
         invoice_item_index: index,
-        invoice_amount: Number(item.amount)
+        invoice_amount: Number(item.amount),
+        invoice_buyer: typeof item.buyer === "string" ? item.buyer : ""
       }))
   );
+}
+
+function invoiceBuyerStatusLabel(buyer: string): string {
+  if (!buyer) return "未识别抬头";
+  const status = buyerMatchStatus(buyer);
+  if (status === "partial") return `${buyer}（需确认）`;
+  if (status === "none") return `${buyer}（不可用）`;
+  return isDifferentAllowedBuyer(buyer, props.user.company_entity) ? `${buyer}（可用抬头）` : buyer;
+}
+
+function invoiceBuyerTone(buyer: string): "ok" | "warn" | "danger" {
+  const status = buyerMatchStatus(buyer);
+  if (status === "exact" && !isDifferentAllowedBuyer(buyer, props.user.company_entity)) return "ok";
+  if (status === "exact" || status === "partial") return "warn";
+  return "danger";
+}
+
+function needsBuyerConfirmation(invoices: Array<{ invoice_buyer: string }>): boolean {
+  return invoices.some((invoice) => buyerMatchStatus(invoice.invoice_buyer) === "partial");
 }
 
 function clearUploadedAttachments(attachments: Attachment[]) {
@@ -400,12 +422,18 @@ async function performWorkBarAction() {
     ...selectedInvoices.value.map((invoice) => ({
       attachment_id: invoice.attachment_id,
       invoice_item_index: invoice.invoice_item_index,
-      invoice_amount: Number(invoice.invoice_amount)
+      invoice_amount: Number(invoice.invoice_amount),
+      invoice_buyer: invoice.invoice_buyer
     }))
   ];
 
   if (!invoiceRefs.length) {
     error.value = "请先上传发票或从发票池选择发票。";
+    return;
+  }
+
+  const buyerConfirmed = needsBuyerConfirmation(invoiceRefs);
+  if (buyerConfirmed && !window.confirm("有发票抬头仅部分命中公司主体，请人工确认抬头无误后继续。")) {
     return;
   }
 
@@ -439,7 +467,8 @@ async function performWorkBarAction() {
         attachment_id: invoice.attachment_id,
         invoice_item_index: invoice.invoice_item_index
       })),
-      note: isSubstitute ? note : ""
+      note: isSubstitute ? note : "",
+      buyer_confirmed: buyerConfirmed
     });
 
     await loadWorkspace();
@@ -629,6 +658,7 @@ onMounted(loadWorkspace);
           <div class="mt-4">
             <InvoiceUploadPanel
               :attachments="uploadedAttachments"
+              :current-company="user.company_entity"
               :removing-id="deletingAttachmentId"
               :pooling="poolingInvoices"
               @uploaded="handleUploaded"
@@ -821,8 +851,18 @@ onMounted(loadWorkspace);
             </div>
             <div class="mt-auto flex items-center gap-2 text-xs text-slate-500">
               <ReceiptText class="h-3.5 w-3.5 shrink-0" />
-              <span class="truncate">{{ invoice.invoice_buyer || "未识别抬头" }}</span>
-              <CheckCircle2 v-if="invoice.invoice_buyer && invoice.invoice_buyer.includes(user.company_entity)" class="h-3.5 w-3.5 shrink-0 text-teal-700" />
+              <span
+                class="truncate"
+                :class="{
+                  'text-teal-700': invoiceBuyerTone(invoice.invoice_buyer) === 'ok',
+                  'text-amber-700': invoiceBuyerTone(invoice.invoice_buyer) === 'warn',
+                  'text-rose-700': invoiceBuyerTone(invoice.invoice_buyer) === 'danger'
+                }"
+              >
+                {{ invoiceBuyerStatusLabel(invoice.invoice_buyer) }}
+              </span>
+              <CheckCircle2 v-if="invoiceBuyerTone(invoice.invoice_buyer) === 'ok'" class="h-3.5 w-3.5 shrink-0 text-teal-700" />
+              <AlertTriangle v-else class="h-3.5 w-3.5 shrink-0" :class="invoiceBuyerTone(invoice.invoice_buyer) === 'warn' ? 'text-amber-600' : 'text-rose-600'" />
             </div>
           </article>
         </div>

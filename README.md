@@ -34,10 +34,15 @@ npm run dev
 BOOTSTRAP_ADMIN_USERNAME=your-admin
 BOOTSTRAP_ADMIN_PASSWORD=change-this-password
 BOOTSTRAP_ADMIN_EMPLOYEE_NAME=管理员姓名
-BOOTSTRAP_ADMIN_COMPANY_ENTITY=公司主体
+BOOTSTRAP_ADMIN_COMPANY_ENTITY=上海山途远智信息科技有限公司
 ```
 
 bootstrap 管理员只会在用户表为空时创建；已有用户后再次启动不会覆盖账号。
+
+当前公司主体固定为两个，只能选择：
+
+- `上海山途远智信息科技有限公司`
+- `山途远智（上海）企业服务有限公司`
 
 本地演示如需固定账号，可临时设置 `SEED_DEMO_USERS=true`。此时首次启动后端会创建三个演示账号：
 
@@ -86,4 +91,4 @@ docker compose up -d --build
 - `TENCENT_OCR_PDF_PAGE`：未开启多页识别时的 PDF 页码，默认第 1 页。
 - `SEED_DEMO_USERS`：是否自动创建演示账号，默认 `false`。
 - `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD`：用户表为空时创建第一个管理员。
-- `BOOTSTRAP_ADMIN_EMPLOYEE_NAME` / `BOOTSTRAP_ADMIN_COMPANY_ENTITY`：第一个管理员的员工姓名和公司主体。
+- `BOOTSTRAP_ADMIN_EMPLOYEE_NAME` / `BOOTSTRAP_ADMIN_COMPANY_ENTITY`：第一个管理员的员工姓名和公司主体；公司主体必须是系统允许的两个主体之一。

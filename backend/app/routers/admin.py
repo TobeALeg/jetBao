@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 
+from app.company_entities import is_allowed_company_entity, normalize_company_entity
 from app.dependencies import require_admin
 from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExportPreview, LedgerRow
 from app.security import hash_password
@@ -14,6 +15,13 @@ from app.services.export_package import build_export_package
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+def _validate_company_entity(company_entity: str) -> str:
+    company = normalize_company_entity(company_entity)
+    if not is_allowed_company_entity(company):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="公司主体不在可选范围内")
+    return company
 
 
 def _ledger_query(
@@ -263,6 +271,7 @@ def list_users(request: Request, admin=Depends(require_admin)) -> list[AdminUser
 
 @router.post("/users", response_model=AdminUserResponse)
 def create_user(payload: AdminUserCreateRequest, request: Request, admin=Depends(require_admin)) -> AdminUserResponse:
+    company_entity = _validate_company_entity(payload.company_entity)
     with request.app.state.db.connect() as connection:
         existing = connection.execute("SELECT id FROM users WHERE username = ?", (payload.username.strip(),)).fetchone()
         if existing is not None:
@@ -277,7 +286,7 @@ def create_user(payload: AdminUserCreateRequest, request: Request, admin=Depends
                 hash_password(payload.password),
                 payload.role,
                 payload.employee_name.strip(),
-                payload.company_entity.strip(),
+                company_entity,
             ),
         )
         row = connection.execute("SELECT * FROM users WHERE id = ?", (cursor.lastrowid,)).fetchone()
@@ -312,7 +321,7 @@ def update_user(
             params.append(payload.employee_name.strip())
         if payload.company_entity is not None:
             fields.append("company_entity = ?")
-            params.append(payload.company_entity.strip())
+            params.append(_validate_company_entity(payload.company_entity))
         if payload.is_active is not None:
             fields.append("is_active = ?")
             params.append(int(payload.is_active))
