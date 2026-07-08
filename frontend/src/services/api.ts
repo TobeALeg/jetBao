@@ -4,12 +4,13 @@ import type {
   AdminUserUpdatePayload,
   Attachment,
   DraftExpenseCompletePayload,
-  DraftExpenseCreatePayload,
   Expense,
   ExpenseAllocationBatchCreatePayload,
   ExpenseAllocationCreatePayload,
   ExpenseAttachmentLinkPayload,
+  ExpenseCreatePayload,
   ExpenseItemCreatePayload,
+  ExpenseSubmitPayload,
   ExportPreview,
   InvoicePoolItem,
   LedgerRow,
@@ -121,6 +122,19 @@ export async function deleteExpense(id: number): Promise<{ deleted: boolean }> {
   });
 }
 
+export async function withdrawExpense(id: number): Promise<Expense> {
+  return request(`/expenses/${id}/withdraw`, {
+    method: "POST"
+  });
+}
+
+export async function rejectExpense(id: number, reason?: string): Promise<Expense> {
+  return request(`/admin/expenses/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason: reason ?? "" })
+  });
+}
+
 export async function deleteExpenseAttachment(expenseId: number, attachmentId: number): Promise<Expense> {
   return request(`/expenses/${expenseId}/attachments/${attachmentId}`, {
     method: "DELETE"
@@ -140,10 +154,38 @@ export async function addAttachmentsToInvoicePool(attachmentIds: number[]): Prom
   });
 }
 
-export async function createExpenseDraft(payload: DraftExpenseCreatePayload): Promise<Expense> {
-  return request("/expenses/drafts", {
+export async function createExpenseDraft(payload: ExpenseCreatePayload): Promise<Expense> {
+  return request("/expenses", {
     method: "POST",
     body: JSON.stringify(payload)
+  });
+}
+
+// V2: 一键创建 + 匹配 + 提交
+export async function createAndSubmitExpense(payload: ExpenseSubmitPayload): Promise<Expense> {
+  return request("/expenses/submit", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+// V2: 提交待处理花费
+export async function submitExpense(id: number): Promise<Expense> {
+  return request(`/expenses/${id}/submit`, {
+    method: "POST"
+  });
+}
+
+// V2: 管理员操作
+export async function approveExpense(id: number): Promise<Expense> {
+  return request(`/admin/expenses/${id}/approve`, {
+    method: "POST"
+  });
+}
+
+export async function unreviewExpense(id: number): Promise<Expense> {
+  return request(`/admin/expenses/${id}/unreview`, {
+    method: "POST"
   });
 }
 

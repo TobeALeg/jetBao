@@ -24,21 +24,19 @@ interface NavItem {
 }
 
 const personalNavItems: NavItem[] = [
-  { key: "my-expenses", label: "我的报销", icon: ReceiptText },
-  { key: "new-expense", label: "报销整理", icon: FilePlus2 }
+  { key: "monthly", label: "当月报销", icon: ReceiptText },
+  { key: "history", label: "所有记录", icon: FilePlus2 }
 ];
 
 const adminNavItems: NavItem[] = [
-  { key: "admin-ledger", label: "管理后台", icon: ShieldCheck },
-  { key: "admin-users", label: "员工管理", icon: Users },
-  { key: "export", label: "导出", icon: Download }
+  { key: "history", label: "所有记录", icon: ShieldCheck },
+  { key: "admin-users", label: "员工管理", icon: Users }
 ];
 
 const navItems = computed(() => (props.workspaceMode === "admin" ? adminNavItems : personalNavItems));
 
 function badgeFor(key: ViewKey): number {
-  if (key === "my-expenses") return props.draftCount;
-  if (key === "new-expense") return props.draftCount + props.pendingOcrCount;
+  if (key === "monthly") return props.draftCount;
   return 0;
 }
 

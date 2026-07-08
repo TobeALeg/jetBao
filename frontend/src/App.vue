@@ -2,27 +2,23 @@
 import { computed, onMounted, ref, watch } from "vue";
 import AppShell from "./components/AppShell.vue";
 import LoginView from "./views/LoginView.vue";
-import MyExpensesView from "./views/MyExpensesView.vue";
-import NewExpenseView from "./views/NewExpenseView.vue";
-import AdminLedgerView from "./views/AdminLedgerView.vue";
+import MonthlyView from "./views/MonthlyView.vue";
+import HistoryView from "./views/HistoryView.vue";
 import AdminUsersView from "./views/AdminUsersView.vue";
-import ExportView from "./views/ExportView.vue";
 import { clearToken, getMe, getToken, listExpenses } from "./services/api";
 import type { Expense, User, ViewKey, WorkspaceMode } from "./types";
 
 const user = ref<User | null>(null);
-const currentView = ref<ViewKey>("my-expenses");
+const currentView = ref<ViewKey>("monthly");
 const loadingSession = ref(true);
 const refreshKey = ref(0);
-const draftToComplete = ref<Expense | null>(null);
-const adminLedgerStatus = ref<string | null>(null);
 const allExpenses = ref<Expense[]>([]);
 
-const draftCount = computed(() => allExpenses.value.filter((e) => e.status === "draft").length);
+const draftCount = computed(() => allExpenses.value.filter((e) => e.status === "pending").length);
 const pendingOcrCount = computed(() =>
   allExpenses.value.reduce((sum, e) => sum + e.attachments.filter((f) => f.ocr_status !== "success").length, 0)
 );
-const adminViews = new Set<ViewKey>(["admin-ledger", "admin-users", "export"]);
+const adminViews = new Set<ViewKey>(["history", "admin-users"]);
 const workspaceMode = computed<WorkspaceMode>(() =>
   user.value?.role === "admin" && adminViews.has(currentView.value) ? "admin" : "personal"
 );
@@ -53,52 +49,32 @@ async function restoreSession() {
 
 function handleLogin(nextUser: User) {
   user.value = nextUser;
-  currentView.value = "my-expenses";
-  draftToComplete.value = null;
-  adminLedgerStatus.value = null;
+  currentView.value = "monthly";
   loadExpenses();
 }
 
 function handleLogout() {
   clearToken();
   user.value = null;
-  currentView.value = "my-expenses";
-  draftToComplete.value = null;
-  adminLedgerStatus.value = null;
+  currentView.value = "monthly";
   allExpenses.value = [];
-}
-
-function handleSubmitted() {
-  refreshKey.value += 1;
-  currentView.value = "my-expenses";
-  draftToComplete.value = null;
-  loadExpenses();
 }
 
 function handleChangeView(view: ViewKey) {
   if (adminViews.has(view) && user.value?.role !== "admin") return;
   currentView.value = view;
-  adminLedgerStatus.value = null;
 }
 
 function handleChangeWorkspaceMode(mode: WorkspaceMode) {
   if (mode === "admin" && user.value?.role !== "admin") return;
-  currentView.value = mode === "admin" ? "admin-ledger" : "my-expenses";
-  adminLedgerStatus.value = null;
-}
-
-function handleCompleteDraft(expense: Expense) {
-  draftToComplete.value = expense;
-  currentView.value = "new-expense";
-}
-
-function handleShowDraftsInLedger() {
-  adminLedgerStatus.value = "draft";
-  currentView.value = "admin-ledger";
+  currentView.value = mode === "admin" ? "history" : "monthly";
 }
 
 onMounted(restoreSession);
 watch(refreshKey, loadExpenses);
+watch(() => currentView.value, (v) => {
+  if (v === "monthly") refreshKey.value += 1;
+});
 </script>
 
 <template>
@@ -119,18 +95,17 @@ watch(refreshKey, loadExpenses);
     @change-workspace-mode="handleChangeWorkspaceMode"
     @logout="handleLogout"
   >
-    <MyExpensesView
-      v-show="currentView === 'my-expenses'"
+    <MonthlyView
+      v-show="currentView === 'monthly'"
       :user="user"
       :refresh-key="refreshKey"
-      @complete-draft="handleCompleteDraft"
+      @refreshed="loadExpenses()"
     />
-    <NewExpenseView v-show="currentView === 'new-expense'" :user="user" :draft-expense="draftToComplete" @submitted="handleSubmitted" />
-    <AdminLedgerView
-      v-if="currentView === 'admin-ledger' && user.role === 'admin'"
-      :initial-status="adminLedgerStatus"
+    <HistoryView
+      v-show="currentView === 'history'"
+      :user="user"
+      :refresh-key="refreshKey"
     />
     <AdminUsersView v-if="currentView === 'admin-users' && user.role === 'admin'" />
-    <ExportView v-if="currentView === 'export' && user.role === 'admin'" @show-drafts="handleShowDraftsInLedger" />
   </AppShell>
 </template>

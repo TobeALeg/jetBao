@@ -9,7 +9,7 @@ from openpyxl import Workbook
 
 from app.company_entities import is_allowed_company_entity, normalize_company_entity
 from app.dependencies import require_admin
-from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExportPreview, LedgerRow
+from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExpenseRejectRequest, ExpenseResponse, ExportPreview, LedgerRow
 from app.security import hash_password
 from app.services.export_package import build_export_package
 
@@ -104,7 +104,27 @@ def _ledger_query(
     return query, params
 
 
-def _serialize_ledger_row(row) -> LedgerRow:
+def _serialize_ledger_row(row, connection=None) -> LedgerRow:
+    ledger_duplicates: list = []
+    if row["has_duplicate"] and connection is not None:
+        from app.routers.attachments import find_duplicate_sources
+
+        attachments = connection.execute(
+            """
+            SELECT a.id, a.file_hash, a.duplicate_count
+            FROM attachments a
+            JOIN expense_invoice_allocations ea ON ea.attachment_id = a.id
+            WHERE ea.expense_id = ?
+            """,
+            (row["id"],),
+        ).fetchall()
+        seen: dict[int, dict] = {}
+        for att in attachments:
+            if att["duplicate_count"] > 0:
+                for src in find_duplicate_sources(connection, att["file_hash"], att["id"]):
+                    if src.attachment_id not in seen:
+                        seen[src.attachment_id] = {"attachment_id": src.attachment_id, "filename": src.filename, "employee_name": src.employee_name}
+        ledger_duplicates = list(seen.values())
     return LedgerRow(
         id=row["id"],
         company_entity=row["company_entity"],
@@ -123,6 +143,9 @@ def _serialize_ledger_row(row) -> LedgerRow:
         note=row["note"],
         status=row["status"],
         has_duplicate=bool(row["has_duplicate"]),
+        duplicate_of=ledger_duplicates,
+        reject_reason=row["reject_reason"] if "reject_reason" in row.keys() else "",
+        reviewed_at=row["reviewed_at"] if "reviewed_at" in row.keys() else "",
         created_at=row["created_at"],
         attachment_names=row["attachment_names"],
         allocation_summary=row["allocation_summary"],
@@ -144,7 +167,7 @@ def ledger(
     query, params = _ledger_query(month, company_entity, employee, category, is_substitute, has_duplicate, record_status)
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
-    return [_serialize_ledger_row(row) for row in rows]
+    return [_serialize_ledger_row(row, connection) for row in rows]
 
 
 @router.get("/export/preview", response_model=ExportPreview)
@@ -154,18 +177,18 @@ def export_preview(
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> ExportPreview:
-    query, params = _ledger_query(month, company_entity, None, None, None, None, "submitted")
-    draft_query, draft_params = _ledger_query(month, company_entity, None, None, None, None, "draft")
+    query, params = _ledger_query(month, company_entity, None, None, None, None, "matched")
+    pending_query, pending_params = _ledger_query(month, company_entity, None, None, None, None, "pending")
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
-        draft_rows = connection.execute(draft_query, draft_params).fetchall()
+        pending_rows = connection.execute(pending_query, pending_params).fetchall()
     employee_count = len({row["employee_name"] for row in rows})
     total_amount = round(sum(float(row["actual_amount"]) for row in rows), 2)
     return ExportPreview(
         employee_count=employee_count,
         record_count=len(rows),
         total_amount=total_amount,
-        pending_draft_count=len(draft_rows),
+        pending_count=len(pending_rows),
     )
 
 
@@ -176,7 +199,7 @@ def export_excel(
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> StreamingResponse:
-    query, params = _ledger_query(month, company_entity, None, None, None, None, "submitted")
+    query, params = _ledger_query(month, company_entity, None, None, None, None, "matched")
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
 
@@ -344,3 +367,93 @@ def deactivate_user(user_id: int, request: Request, admin=Depends(require_admin)
         connection.execute("UPDATE users SET is_active = 0 WHERE id = ?", (user_id,))
         updated = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     return _serialize_user(updated)
+
+
+@router.post("/expenses/{expense_id}/reject", response_model=ExpenseResponse)
+def reject_expense(
+    expense_id: int,
+    request: Request,
+    payload: ExpenseRejectRequest = ExpenseRejectRequest(),
+    admin=Depends(require_admin),
+) -> ExpenseResponse:
+    from app.routers.expenses import _allocation_rows_for_expense, _attachment_rows_for_expense, _reset_expense_to_pending, serialize_expense
+
+    with request.app.state.db.connect() as connection:
+        expense = connection.execute(
+            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            (expense_id,),
+        ).fetchone()
+        if expense is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+        if expense["status"] != "matched":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有已提交记录才能打回")
+        _reset_expense_to_pending(connection, expense_id, reject_reason=payload.reason.strip())
+        updated = connection.execute(
+            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            (expense_id,),
+        ).fetchone()
+        attachments = _attachment_rows_for_expense(connection, expense_id)
+        allocations = _allocation_rows_for_expense(connection, expense_id)
+        return serialize_expense(updated, attachments, allocations, connection)
+
+
+@router.post("/expenses/{expense_id}/approve", response_model=ExpenseResponse)
+def approve_expense(
+    expense_id: int,
+    request: Request,
+    admin=Depends(require_admin),
+) -> ExpenseResponse:
+    from app.routers.expenses import _allocation_rows_for_expense, _attachment_rows_for_expense, serialize_expense
+    from datetime import datetime, timezone
+
+    with request.app.state.db.connect() as connection:
+        expense = connection.execute(
+            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            (expense_id,),
+        ).fetchone()
+        if expense is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+        if expense["status"] != "matched":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有已提交记录才能审核通过")
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        connection.execute(
+            "UPDATE expenses SET status = 'reviewed', reviewed_at = ?, reject_reason = '' WHERE id = ?",
+            (now, expense_id),
+        )
+        updated = connection.execute(
+            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            (expense_id,),
+        ).fetchone()
+        attachments = _attachment_rows_for_expense(connection, expense_id)
+        allocations = _allocation_rows_for_expense(connection, expense_id)
+        return serialize_expense(updated, attachments, allocations, connection)
+
+
+@router.post("/expenses/{expense_id}/unreview", response_model=ExpenseResponse)
+def unreview_expense(
+    expense_id: int,
+    request: Request,
+    admin=Depends(require_admin),
+) -> ExpenseResponse:
+    from app.routers.expenses import _allocation_rows_for_expense, _attachment_rows_for_expense, serialize_expense
+
+    with request.app.state.db.connect() as connection:
+        expense = connection.execute(
+            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            (expense_id,),
+        ).fetchone()
+        if expense is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+        if expense["status"] != "reviewed":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有已完成审核的记录才能撤销")
+        connection.execute(
+            "UPDATE expenses SET status = 'matched', reviewed_at = '' WHERE id = ?",
+            (expense_id,),
+        )
+        updated = connection.execute(
+            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            (expense_id,),
+        ).fetchone()
+        attachments = _attachment_rows_for_expense(connection, expense_id)
+        allocations = _allocation_rows_for_expense(connection, expense_id)
+        return serialize_expense(updated, attachments, allocations, connection)

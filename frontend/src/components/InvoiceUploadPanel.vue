@@ -221,8 +221,11 @@ async function handleDrop(event: DragEvent) {
 
     <p v-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
 
-    <div v-if="duplicateAttachments.length" class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-      {{ duplicateAttachments.length }} 个附件疑似重复
+    <div v-if="duplicateAttachments.length" class="space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+      <div>{{ duplicateAttachments.length }} 个附件疑似重复：</div>
+      <div v-for="att in duplicateAttachments" :key="att.id" class="pl-2">
+        {{ att.original_filename }}<span v-if="att.duplicate_of?.length"> 与 {{ att.duplicate_of.map((d) => `${d.employee_name} 的 ${d.filename}`).join("、") }} 重复</span>
+      </div>
     </div>
 
     <div v-if="allInvoiceItems.length" class="flex items-center gap-3 rounded-md border border-teal-100 bg-teal-50 px-3 py-2 text-xs text-teal-800">

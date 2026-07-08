@@ -51,8 +51,10 @@ class Database:
                     is_substitute INTEGER NOT NULL DEFAULT 0,
                     substitute_reason TEXT NOT NULL DEFAULT '',
                     note TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'draft',
+                    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'matched', 'reviewed')),
                     has_duplicate INTEGER NOT NULL DEFAULT 0,
+                    reject_reason TEXT NOT NULL DEFAULT '',
+                    reviewed_at TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -113,6 +115,11 @@ class Database:
     def _migrate(self, connection: sqlite3.Connection) -> None:
         self._add_column_if_missing(connection, "users", "is_active", "INTEGER NOT NULL DEFAULT 1")
         self._add_column_if_missing(connection, "attachments", "pool_status", "TEXT NOT NULL DEFAULT 'pooled'")
+        self._add_column_if_missing(connection, "expenses", "reject_reason", "TEXT NOT NULL DEFAULT ''")
+        self._add_column_if_missing(connection, "expenses", "reviewed_at", "TEXT NOT NULL DEFAULT ''")
+        # V2 status migration: draft→pending, submitted→matched
+        connection.execute("UPDATE expenses SET status = 'pending' WHERE status = 'draft'")
+        connection.execute("UPDATE expenses SET status = 'matched' WHERE status = 'submitted'")
         for column, definition in (
             ("project_name", "TEXT NOT NULL DEFAULT ''"),
             ("invoice_buyer", "TEXT NOT NULL DEFAULT ''"),

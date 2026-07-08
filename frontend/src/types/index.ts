@@ -1,10 +1,10 @@
 export type Role = "employee" | "admin";
 
-export type ViewKey = "my-expenses" | "new-expense" | "admin-ledger" | "admin-users" | "export";
+export type ViewKey = "monthly" | "history" | "admin-users";
 
 export type WorkspaceMode = "personal" | "admin";
 
-export type ExpenseStatus = "draft" | "submitted";
+export type ExpenseStatus = "pending" | "matched" | "reviewed";
 
 export interface User {
   id: number;
@@ -15,6 +15,12 @@ export interface User {
   is_active: boolean;
 }
 
+export interface DuplicateInfo {
+  attachment_id: number;
+  filename: string;
+  employee_name: string;
+}
+
 export interface Attachment {
   id: number;
   original_filename: string;
@@ -22,6 +28,7 @@ export interface Attachment {
   file_size: number;
   duplicate_count: number;
   is_duplicate: boolean;
+  duplicate_of: DuplicateInfo[];
   pool_status: "staged" | "pooled";
   ocr_status: string;
   ocr_result: Record<string, unknown>;
@@ -62,15 +69,33 @@ export interface Expense {
   note: string;
   status: ExpenseStatus;
   has_duplicate: boolean;
+  duplicate_of: DuplicateInfo[];
   allocated_amount: number;
   remaining_amount: number;
   allocation_count: number;
+  reject_reason: string;
+  reviewed_at: string;
   created_at: string;
   attachments: Attachment[];
   allocations: ExpenseAllocation[];
 }
 
-export interface DraftExpenseCreatePayload {
+// V2: Expense submit
+export interface ExpenseSubmitPayload {
+  project_name: string;
+  actual_amount: number;
+  expense_month: string;
+  category: string;
+  invoices: ExpenseInvoiceReferencePayload[];
+  attachment_ids: number[];
+  note: string;
+  buyer_confirmed?: boolean;
+}
+
+// Legacy alias
+export type DraftExpenseCreatePayload = ExpenseCreatePayload;
+
+export interface ExpenseCreatePayload {
   project_name: string;
   actual_amount: number;
   expense_month: string;
@@ -114,6 +139,7 @@ export interface InvoicePoolItem {
   invoice_type: string;
   ocr_status: string;
   is_duplicate: boolean;
+  duplicate_of: DuplicateInfo[];
   created_at: string;
 }
 
@@ -160,6 +186,9 @@ export interface LedgerRow {
   note: string;
   status: ExpenseStatus;
   has_duplicate: boolean;
+  duplicate_of: DuplicateInfo[];
+  reject_reason: string;
+  reviewed_at: string;
   created_at: string;
   attachment_names: string;
   allocation_summary: string;
@@ -169,7 +198,7 @@ export interface ExportPreview {
   employee_count: number;
   record_count: number;
   total_amount: number;
-  pending_draft_count: number;
+  pending_count: number;
 }
 
 export interface AdminUser {

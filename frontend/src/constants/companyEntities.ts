@@ -1,6 +1,7 @@
 export const COMPANY_ENTITIES = [
   "上海山途远智信息科技有限公司",
-  "山途远智（上海）企业服务有限公司"
+  "山途远智（上海）企业服务有限公司",
+  "上海山途远智企业咨询有限公司"
 ] as const;
 
 export type BuyerMatchStatus = "exact" | "partial" | "none";

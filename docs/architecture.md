@@ -5,7 +5,7 @@
 ### module relationship
 
 - `users`：真实员工身份、权限角色和登录密码哈希；员工可通过 `/api/me/password` 修改自己的密码。
-- `company_entities`：系统允许的两个公司主体为 `上海山途远智信息科技有限公司`、`山途远智（上海）企业服务有限公司`；用户创建、用户更新和 bootstrap 管理员都必须使用其中之一。
+- `company_entities`：系统允许的三个公司主体为 `上海山途远智信息科技有限公司`、`山途远智（上海）企业服务有限公司`、`上海山途远智企业咨询有限公司`；用户创建、用户更新和 bootstrap 管理员都必须使用其中之一。
 - `SEED_DEMO_USERS` 默认关闭；真实部署通过 `BOOTSTRAP_ADMIN_*` 在空用户表时创建第一个管理员，不再按固定用户名自动提权。
 - `expenses`：花费项目统一事实表，包含 `draft` 和 `submitted` 两种状态。
 - `attachments`：上传文件，既可以是花费项目的交易记录，也可以被 OCR 识别为发票凭证；`pool_status = staged` 表示已上传已 OCR 但未入池，`pooled` 表示可进入发票池匹配。

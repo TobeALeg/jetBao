@@ -10,14 +10,31 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.dependencies import get_current_user
-from app.schemas import AttachmentPoolRequest, AttachmentResponse
+from app.schemas import AttachmentPoolRequest, AttachmentResponse, DuplicateInfo
 from app.services.ocr import OcrService, OcrServiceConfig
 
 
 router = APIRouter(prefix="/api", tags=["attachments"])
 
 
-def _attachment_response(row) -> AttachmentResponse:
+def find_duplicate_sources(connection, file_hash: str, exclude_id: int) -> list[DuplicateInfo]:
+    rows = connection.execute(
+        """
+        SELECT a.id, a.original_filename, u.employee_name
+        FROM attachments a
+        JOIN users u ON u.id = a.user_id
+        WHERE a.file_hash = ? AND a.id != ? AND a.id < ?
+        ORDER BY a.id
+        """,
+        (file_hash, exclude_id, exclude_id),
+    ).fetchall()
+    return [DuplicateInfo(attachment_id=r["id"], filename=r["original_filename"], employee_name=r["employee_name"]) for r in rows]
+
+
+def _attachment_response(row, connection=None) -> AttachmentResponse:
+    duplicates: list[DuplicateInfo] = []
+    if row["duplicate_count"] > 0 and connection is not None:
+        duplicates = find_duplicate_sources(connection, row["file_hash"], row["id"])
     return AttachmentResponse(
         id=row["id"],
         original_filename=row["original_filename"],
@@ -25,6 +42,7 @@ def _attachment_response(row) -> AttachmentResponse:
         file_size=row["file_size"],
         duplicate_count=row["duplicate_count"],
         is_duplicate=row["duplicate_count"] > 0,
+        duplicate_of=duplicates,
         pool_status=row["pool_status"],
         ocr_status=row["ocr_status"],
         ocr_result=json.loads(row["ocr_result"] or "{}"),
@@ -91,7 +109,7 @@ def _save_and_recognize_attachment(request: Request, file: UploadFile, user) -> 
             ),
         )
         row = connection.execute("SELECT * FROM attachments WHERE id = ?", (cursor.lastrowid,)).fetchone()
-    return _attachment_response(row)
+        return _attachment_response(row, connection)
 
 
 @router.post("/attachments", response_model=AttachmentResponse)
@@ -178,7 +196,7 @@ def add_attachments_to_invoice_pool(
             """,
             (*attachment_ids, user["id"]),
         ).fetchall()
-    return [_attachment_response(row) for row in updated]
+        return [_attachment_response(row, connection) for row in updated]
 
 
 @router.get("/attachments/{attachment_id}/content")

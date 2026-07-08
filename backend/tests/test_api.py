@@ -691,23 +691,63 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
     assert by_attachment[second_attachment_id]["remaining_amount"] == 0
 
 
-def test_invoice_buyer_can_match_either_allowed_company_entity(tmp_path, monkeypatch):
+def test_cross_entity_invoice_buyer_requires_confirmation(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     dandi = auth_headers(client, "Dandi", "dandi123")
 
-    submitted = create_invoice_backed_expense(
+    attachment_id = insert_ocr_attachment(
         client,
-        dandi,
         user_id=2,
-        amount=100,
-        project_name="企业服务资料",
-        category="办公采购",
-        invoice_number="ENTITY-2",
-        buyer="山途远智（上海）企业服务有限公司",
+        invoice_items=[
+            {
+                "buyer": "山途远智（上海）企业服务有限公司",
+                "amount": 100,
+                "invoice_number": "ENTITY-2",
+                "date": "2026-05-20",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="ENTITY-2.pdf",
     )
+    draft = client.post(
+        "/api/expenses/drafts",
+        headers=dandi,
+        json={
+            "project_name": "企业服务资料",
+            "actual_amount": 100,
+            "expense_month": "2026-05",
+            "category": "办公采购",
+        },
+    )
+    assert draft.status_code == 200
 
-    assert submitted["status"] == "submitted"
-    assert submitted["invoice_buyer"] == "山途远智（上海）企业服务有限公司"
+    rejected = client.post(
+        "/api/expense-allocations",
+        headers=dandi,
+        json={
+            "expense_id": draft.json()["id"],
+            "attachment_id": attachment_id,
+            "invoice_item_index": 0,
+            "note": "",
+        },
+    )
+    assert rejected.status_code == 400
+    assert "公司主体" in rejected.json()["detail"]
+
+    accepted = client.post(
+        "/api/expense-allocations",
+        headers=dandi,
+        json={
+            "expense_id": draft.json()["id"],
+            "attachment_id": attachment_id,
+            "invoice_item_index": 0,
+            "note": "",
+            "buyer_confirmed": True,
+        },
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "submitted"
+    assert accepted.json()["invoice_buyer"] == "山途远智（上海）企业服务有限公司"
 
 
 def test_partial_invoice_buyer_match_requires_manual_confirmation(tmp_path, monkeypatch):
