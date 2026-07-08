@@ -9,7 +9,6 @@ import type {
   ExpenseAllocationBatchCreatePayload,
   ExpenseAllocationCreatePayload,
   ExpenseAttachmentLinkPayload,
-  ExpenseCreatePayload,
   ExpenseItemCreatePayload,
   ExportPreview,
   InvoicePoolItem,
@@ -138,13 +137,6 @@ export async function addAttachmentsToInvoicePool(attachmentIds: number[]): Prom
   return request("/attachments/pool", {
     method: "POST",
     body: JSON.stringify({ attachment_ids: attachmentIds })
-  });
-}
-
-export async function createExpense(payload: ExpenseCreatePayload): Promise<Expense> {
-  return request("/expenses", {
-    method: "POST",
-    body: JSON.stringify(payload)
   });
 }
 

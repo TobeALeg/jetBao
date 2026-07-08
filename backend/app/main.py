@@ -17,7 +17,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.db.init(settings.seed_demo_users)
+        app.state.db.init(settings.seed_demo_users, settings.bootstrap_admin)
         yield
 
     app = FastAPI(title="JetBao Reimbursement API", lifespan=lifespan)

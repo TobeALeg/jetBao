@@ -98,18 +98,6 @@ class AttachmentPoolRequest(BaseModel):
     attachment_ids: list[int] = Field(min_length=1)
 
 
-class ExpenseCreateRequest(BaseModel):
-    project_name: str = ""
-    category: str = Field(min_length=1)
-    expense_month: str = Field(pattern=r"^\d{4}-\d{2}$")
-    actual_amount: float = Field(gt=0)
-    invoice_amount: float | None = Field(default=None, ge=0)
-    is_substitute: bool = False
-    substitute_reason: str = ""
-    note: str = ""
-    attachment_ids: list[int] = []
-
-
 class DraftExpenseCreateRequest(BaseModel):
     project_name: str = Field(min_length=1)
     actual_amount: float = Field(gt=0)

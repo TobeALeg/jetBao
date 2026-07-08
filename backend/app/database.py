@@ -17,7 +17,7 @@ class Database:
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
-    def init(self, seed_demo_users: bool) -> None:
+    def init(self, seed_demo_users: bool, bootstrap_admin: Any | None = None) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             connection.executescript(
@@ -51,7 +51,7 @@ class Database:
                     is_substitute INTEGER NOT NULL DEFAULT 0,
                     substitute_reason TEXT NOT NULL DEFAULT '',
                     note TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'submitted',
+                    status TEXT NOT NULL DEFAULT 'draft',
                     has_duplicate INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -107,7 +107,8 @@ class Database:
             if seed_demo_users:
                 self._seed_demo_users(connection)
                 self._remove_legacy_demo_users(connection)
-            self._ensure_admin_users(connection)
+            if bootstrap_admin is not None:
+                self._bootstrap_admin(connection, bootstrap_admin)
 
     def _migrate(self, connection: sqlite3.Connection) -> None:
         self._add_column_if_missing(connection, "users", "is_active", "INTEGER NOT NULL DEFAULT 1")
@@ -202,20 +203,27 @@ class Database:
             """
         )
 
-    def _ensure_admin_users(self, connection: sqlite3.Connection) -> None:
-        connection.execute(
-            """
-            UPDATE users
-            SET role = 'admin'
-            WHERE lower(username) IN ('dandi', 'ouyang')
-               OR employee_name IN ('艾丹迪', 'Dandi', '欧阳')
-            """
-        )
-
     def _add_column_if_missing(self, connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
         columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
         if column not in columns:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    def _bootstrap_admin(self, connection: sqlite3.Connection, admin: Any) -> None:
+        existing_users = connection.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
+        if existing_users:
+            return
+        connection.execute(
+            """
+            INSERT INTO users (username, password_hash, role, employee_name, company_entity)
+            VALUES (?, ?, 'admin', ?, ?)
+            """,
+            (
+                admin.username,
+                hash_password(admin.password),
+                admin.employee_name,
+                admin.company_entity,
+            ),
+        )
 
     def _seed_demo_users(self, connection: sqlite3.Connection) -> None:
         existing = connection.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]

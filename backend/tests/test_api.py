@@ -13,16 +13,24 @@ from openpyxl import load_workbook
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
-def make_client(tmp_path: Path, monkeypatch) -> TestClient:
+def make_client(
+    tmp_path: Path,
+    monkeypatch,
+    seed_demo_users: str = "true",
+    bootstrap_admin: dict[str, str] | None = None,
+) -> TestClient:
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "data" / "uploads"))
     monkeypatch.setenv("SECRET_KEY", "test-secret")
-    monkeypatch.setenv("SEED_DEMO_USERS", "true")
+    monkeypatch.setenv("SEED_DEMO_USERS", seed_demo_users)
     monkeypatch.setenv("TENCENT_SECRET_ID", "")
     monkeypatch.setenv("TENCENT_SECRET_KEY", "")
+    if bootstrap_admin:
+        for key, value in bootstrap_admin.items():
+            monkeypatch.setenv(key, value)
     main = importlib.import_module("app.main")
     app = main.create_app()
-    app.state.db.init(app.state.settings.seed_demo_users)
+    app.state.db.init(app.state.settings.seed_demo_users, app.state.settings.bootstrap_admin)
     return TestClient(app)
 
 
@@ -79,6 +87,55 @@ def insert_ocr_attachment(
         return int(cursor.lastrowid)
 
 
+def create_invoice_backed_expense(
+    client: TestClient,
+    headers: dict[str, str],
+    user_id: int,
+    amount: float = 300,
+    project_name: str = "市场活动",
+    category: str = "市场活动",
+    month: str = "2026-05",
+    invoice_number: str = "INV-OK",
+) -> dict:
+    attachment_id = insert_ocr_attachment(
+        client,
+        user_id=user_id,
+        invoice_items=[
+            {
+                "buyer": "上海山途远智信息科技有限公司",
+                "amount": amount,
+                "invoice_number": invoice_number,
+                "date": "2026-05-20",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename=f"{invoice_number}.pdf",
+    )
+    draft = client.post(
+        "/api/expenses/drafts",
+        headers=headers,
+        json={
+            "project_name": project_name,
+            "actual_amount": amount,
+            "expense_month": month,
+            "category": category,
+        },
+    )
+    assert draft.status_code == 200
+    match = client.post(
+        "/api/expense-allocations",
+        headers=headers,
+        json={
+            "expense_id": draft.json()["id"],
+            "attachment_id": attachment_id,
+            "invoice_item_index": 0,
+            "note": "",
+        },
+    )
+    assert match.status_code == 200
+    return match.json()
+
+
 def test_dandi_and_ouyang_are_seeded_as_admins(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
 
@@ -91,6 +148,68 @@ def test_dandi_and_ouyang_are_seeded_as_admins(tmp_path, monkeypatch):
         assert me.status_code == 200
         assert me.json()["role"] == "admin"
         assert me.json()["employee_name"] == employee_name
+
+
+def test_demo_users_are_not_seeded_by_default(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch, seed_demo_users="false")
+
+    response = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+
+    assert response.status_code == 401
+
+
+def test_bootstrap_admin_creates_first_admin_without_demo_users(tmp_path, monkeypatch):
+    client = make_client(
+        tmp_path,
+        monkeypatch,
+        seed_demo_users="false",
+        bootstrap_admin={
+            "BOOTSTRAP_ADMIN_USERNAME": "owner",
+            "BOOTSTRAP_ADMIN_PASSWORD": "owner-pass",
+            "BOOTSTRAP_ADMIN_EMPLOYEE_NAME": "Owner",
+            "BOOTSTRAP_ADMIN_COMPANY_ENTITY": "上海测试科技有限公司",
+        },
+    )
+
+    headers = auth_headers(client, "owner", "owner-pass")
+    me = client.get("/api/me", headers=headers)
+
+    assert me.status_code == 200
+    assert me.json()["role"] == "admin"
+    assert me.json()["employee_name"] == "Owner"
+
+
+def test_dandi_username_is_not_auto_promoted_on_restart(tmp_path, monkeypatch):
+    client = make_client(
+        tmp_path,
+        monkeypatch,
+        seed_demo_users="false",
+        bootstrap_admin={
+            "BOOTSTRAP_ADMIN_USERNAME": "owner",
+            "BOOTSTRAP_ADMIN_PASSWORD": "owner-pass",
+            "BOOTSTRAP_ADMIN_EMPLOYEE_NAME": "Owner",
+            "BOOTSTRAP_ADMIN_COMPANY_ENTITY": "上海测试科技有限公司",
+        },
+    )
+    owner = auth_headers(client, "owner", "owner-pass")
+    created = client.post(
+        "/api/admin/users",
+        headers=owner,
+        json={
+            "username": "Dandi",
+            "password": "dandi123",
+            "role": "employee",
+            "employee_name": "艾丹迪",
+            "company_entity": "上海山途远智信息科技有限公司",
+        },
+    )
+    assert created.status_code == 200
+
+    client.app.state.db.init(seed_demo_users=False, bootstrap_admin=None)
+    users = client.get("/api/admin/users", headers=owner)
+    dandi = next(user for user in users.json() if user["username"] == "Dandi")
+
+    assert dandi["role"] == "employee"
 
 
 def test_legacy_alice_and_bob_demo_accounts_are_not_seeded(tmp_path, monkeypatch):
@@ -126,30 +245,24 @@ def test_user_can_change_own_password(tmp_path, monkeypatch):
     assert new_login.status_code == 200
 
 
-def test_employee_can_create_expense_and_only_see_own_records(tmp_path, monkeypatch):
+def test_employee_can_create_draft_and_only_see_own_records(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     dandi = auth_headers(client, "Dandi", "dandi123")
     ouyang = auth_headers(client, "Ouyang", "ouyang123")
 
-    upload = upload_file(client, dandi, "invoice.pdf", b"invoice-one")
-    assert upload.status_code == 200
-
     create = client.post(
-        "/api/expenses",
+        "/api/expenses/drafts",
         headers=dandi,
         json={
+            "project_name": "机场快线",
             "category": "差旅交通",
             "expense_month": "2026-05",
             "actual_amount": 128.5,
-            "invoice_amount": 128.5,
-            "is_substitute": False,
-            "substitute_reason": "",
-            "note": "机场快线",
-            "attachment_ids": [upload.json()["id"]],
         },
     )
     assert create.status_code == 200
     assert create.json()["company_entity"] == "上海山途远智信息科技有限公司"
+    assert create.json()["status"] == "draft"
 
     dandi_records = client.get("/api/expenses", headers=dandi)
     ouyang_records = client.get("/api/expenses", headers=ouyang)
@@ -157,7 +270,7 @@ def test_employee_can_create_expense_and_only_see_own_records(tmp_path, monkeypa
     assert ouyang_records.json() == []
 
 
-def test_substitute_and_amount_mismatch_require_reason(tmp_path, monkeypatch):
+def test_direct_expense_submission_endpoint_is_not_available(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     dandi = auth_headers(client, "Dandi", "dandi123")
 
@@ -175,8 +288,7 @@ def test_substitute_and_amount_mismatch_require_reason(tmp_path, monkeypatch):
             "attachment_ids": [],
         },
     )
-    assert response.status_code == 400
-    assert "说明" in response.json()["detail"]
+    assert response.status_code == 405
 
 
 def test_duplicate_upload_is_marked_but_not_blocked(tmp_path, monkeypatch):
@@ -190,44 +302,14 @@ def test_duplicate_upload_is_marked_but_not_blocked(tmp_path, monkeypatch):
     assert first.json()["is_duplicate"] is False
     assert second.json()["is_duplicate"] is True
 
-    create = client.post(
-        "/api/expenses",
-        headers=dandi,
-        json={
-            "category": "办公采购",
-            "expense_month": "2026-05",
-            "actual_amount": 50,
-            "invoice_amount": 50,
-            "is_substitute": False,
-            "substitute_reason": "",
-            "note": "",
-            "attachment_ids": [second.json()["id"]],
-        },
-    )
-    assert create.status_code == 200
-    assert create.json()["has_duplicate"] is True
-
 
 def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     dandi = auth_headers(client, "Dandi", "dandi123")
     admin = auth_headers(client, "admin", "admin123")
 
-    create = client.post(
-        "/api/expenses",
-        headers=dandi,
-        json={
-            "category": "市场活动",
-            "expense_month": "2026-05",
-            "actual_amount": 300,
-            "invoice_amount": 300,
-            "is_substitute": False,
-            "substitute_reason": "",
-            "note": "",
-            "attachment_ids": [],
-        },
-    )
-    assert create.status_code == 200
+    create = create_invoice_backed_expense(client, dandi, user_id=2, amount=300)
+    assert create["status"] == "submitted"
 
     draft = client.post(
         "/api/expenses/drafts",
@@ -604,6 +686,56 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
     assert by_attachment[first_attachment_id]["remaining_amount"] == 0
     assert by_attachment[second_attachment_id]["allocated_amount"] == 300
     assert by_attachment[second_attachment_id]["remaining_amount"] == 0
+
+
+def test_submitted_expense_cannot_be_changed_by_employee(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    dandi = auth_headers(client, "Dandi", "dandi123")
+    submitted = create_invoice_backed_expense(
+        client,
+        dandi,
+        user_id=2,
+        amount=100,
+        project_name="客户拜访打车",
+        category="差旅交通",
+        invoice_number="LOCKED-1",
+    )
+    extra_invoice_id = insert_ocr_attachment(
+        client,
+        user_id=2,
+        invoice_items=[
+            {
+                "buyer": "上海山途远智信息科技有限公司",
+                "amount": 20,
+                "invoice_number": "LOCKED-2",
+                "date": "2026-05-21",
+                "sub_type_description": "电子普通发票",
+            }
+        ],
+        filename="locked-extra.pdf",
+    )
+
+    append_invoice = client.post(
+        "/api/expense-allocations",
+        headers=dandi,
+        json={
+            "expense_id": submitted["id"],
+            "attachment_id": extra_invoice_id,
+            "invoice_item_index": 0,
+            "note": "补充发票",
+        },
+    )
+    assert append_invoice.status_code == 400
+    assert "已提交" in append_invoice.json()["detail"]
+
+    payment = upload_file(client, dandi, "late-payment.png", b"payment-image", "image/png")
+    append_attachment = client.post(
+        f"/api/expenses/{submitted['id']}/attachments",
+        headers=dandi,
+        json={"attachment_ids": [payment.json()["id"]]},
+    )
+    assert append_attachment.status_code == 400
+    assert "已提交" in append_attachment.json()["detail"]
 
 
 def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, monkeypatch):

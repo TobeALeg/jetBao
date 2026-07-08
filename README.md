@@ -26,15 +26,26 @@ npm run dev
 
 前端默认地址：`http://127.0.0.1:5173`
 
-## 演示账号
+## 首次账号
 
-首次启动后端会创建三个演示账号：
+生产或给同事使用时，不会默认创建演示账号。首次部署建议在 `.env` 中设置一次 bootstrap 管理员：
+
+```bash
+BOOTSTRAP_ADMIN_USERNAME=your-admin
+BOOTSTRAP_ADMIN_PASSWORD=change-this-password
+BOOTSTRAP_ADMIN_EMPLOYEE_NAME=管理员姓名
+BOOTSTRAP_ADMIN_COMPANY_ENTITY=公司主体
+```
+
+bootstrap 管理员只会在用户表为空时创建；已有用户后再次启动不会覆盖账号。
+
+本地演示如需固定账号，可临时设置 `SEED_DEMO_USERS=true`。此时首次启动后端会创建三个演示账号：
 
 - 管理员：`admin` / `admin123`
 - 管理员：`Dandi` / `dandi123`
 - 管理员：`Ouyang` / `ouyang123`
 
-上线前请关闭演示账号种子数据，并改用自己的管理员账号。
+演示账号只用于本地演示，不要用于真实部署。
 
 ## Docker 启动
 
@@ -73,4 +84,6 @@ docker compose up -d --build
 - `TENCENT_OCR_ACTION`：OCR 接口，默认 `RecognizeGeneralInvoice`，用于通用票据识别。
 - `TENCENT_OCR_ENABLE_MULTIPLE_PAGE`：是否开启 PDF 多页识别，默认 `true`，腾讯云最多返回前 30 页。
 - `TENCENT_OCR_PDF_PAGE`：未开启多页识别时的 PDF 页码，默认第 1 页。
-- `SEED_DEMO_USERS`：是否自动创建演示账号，默认 `true`。
+- `SEED_DEMO_USERS`：是否自动创建演示账号，默认 `false`。
+- `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD`：用户表为空时创建第一个管理员。
+- `BOOTSTRAP_ADMIN_EMPLOYEE_NAME` / `BOOTSTRAP_ADMIN_COMPANY_ENTITY`：第一个管理员的员工姓名和公司主体。

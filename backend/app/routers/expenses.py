@@ -18,7 +18,6 @@ from app.schemas import (
     ExpenseAllocationResponse,
     ExpenseAttachmentLinkRequest,
     ExpenseBatchCreateRequest,
-    ExpenseCreateRequest,
     ExpenseResponse,
     InvoicePoolItem,
 )
@@ -139,16 +138,6 @@ def serialize_expense(expense, attachments, allocations: list[sqlite3.Row] | Non
     )
 
 
-def _validate_expense(payload: ExpenseCreateRequest) -> None:
-    reason = payload.substitute_reason.strip()
-    invoice_amount = payload.invoice_amount
-    amount_mismatch = invoice_amount is not None and round(invoice_amount, 2) != round(payload.actual_amount, 2)
-    if payload.is_substitute and not reason:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="替票报销必须填写替票说明")
-    if amount_mismatch and not reason:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="发票金额与实际报销金额不一致时必须填写说明")
-
-
 def _delete_file(path_value: str) -> None:
     try:
         Path(path_value).unlink(missing_ok=True)
@@ -162,6 +151,11 @@ def _validate_amount_reason(is_substitute: bool, actual_amount: float, invoice_a
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="替票报销必须填写替票说明")
     if amount_mismatch and not reason:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="发票金额与实际报销金额不一致时必须填写说明")
+
+
+def _ensure_expense_is_draft(expense: sqlite3.Row) -> None:
+    if expense["status"] != "draft":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已提交记录不能继续修改")
 
 
 def company_titles_match(recognized_buyer: str, expected_company: str) -> bool:
@@ -514,6 +508,7 @@ def delete_expense_attachment(
         ).fetchone()
         if expense is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+        _ensure_expense_is_draft(expense)
 
         attachment = connection.execute(
             """
@@ -557,6 +552,7 @@ def create_expense_allocation(
         ).fetchone()
         if expense is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="报销记录不存在")
+        _ensure_expense_is_draft(expense)
 
         attachment = connection.execute(
             "SELECT * FROM attachments WHERE id = ? AND user_id = ?",
@@ -593,6 +589,7 @@ def create_expense_allocations_batch(
         ).fetchone()
         if expense is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="报销记录不存在")
+        _ensure_expense_is_draft(expense)
 
         invoice_rows: list[tuple[sqlite3.Row, dict[str, Any], int]] = []
         for ref in refs:
@@ -643,6 +640,7 @@ def link_expense_attachments(
         ).fetchone()
         if expense is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="报销记录不存在")
+        _ensure_expense_is_draft(expense)
 
         attachments = _attachment_rows_for_user(connection, attachment_ids, user["id"])
         allocated = connection.execute(
@@ -659,48 +657,6 @@ def link_expense_attachments(
         _link_expense_attachments(connection, expense_id, [row["id"] for row in attachments])
         updated, linked_attachments, allocations = _load_expense(connection, expense_id)
     return serialize_expense(updated, linked_attachments, allocations)
-
-
-@router.post("/expenses", response_model=ExpenseResponse)
-def create_expense(
-    payload: ExpenseCreateRequest,
-    request: Request,
-    user=Depends(get_current_user),
-) -> ExpenseResponse:
-    _validate_expense(payload)
-    attachment_ids = list(dict.fromkeys(payload.attachment_ids))
-
-    with request.app.state.db.connect() as connection:
-        attachments = _attachment_rows_for_user(connection, attachment_ids, user["id"])
-
-        has_duplicate = any(row["duplicate_count"] > 0 for row in attachments)
-        cursor = connection.execute(
-            """
-            INSERT INTO expenses (
-                user_id, company_entity, project_name, category, expense_month, actual_amount,
-                invoice_amount, is_substitute, substitute_reason, note, has_duplicate, status
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted')
-            """,
-            (
-                user["id"],
-                user["company_entity"],
-                payload.project_name.strip(),
-                payload.category.strip(),
-                payload.expense_month,
-                payload.actual_amount,
-                payload.invoice_amount,
-                int(payload.is_substitute),
-                payload.substitute_reason.strip(),
-                payload.note.strip(),
-                int(has_duplicate),
-            ),
-        )
-        expense_id = cursor.lastrowid
-        if attachment_ids:
-            _link_expense_attachments(connection, expense_id, attachment_ids)
-        expense, linked_attachments, allocations = _load_expense(connection, expense_id)
-    return serialize_expense(expense, linked_attachments, allocations)
 
 
 @router.post("/expenses/drafts", response_model=ExpenseResponse)

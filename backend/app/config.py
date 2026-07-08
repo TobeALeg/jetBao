@@ -30,6 +30,14 @@ def _env_int(name: str, default: int) -> int:
 
 
 @dataclass(frozen=True)
+class BootstrapAdmin:
+    username: str
+    password: str
+    employee_name: str
+    company_entity: str
+
+
+@dataclass(frozen=True)
 class Settings:
     secret_key: str
     data_dir: Path
@@ -43,6 +51,7 @@ class Settings:
     tencent_ocr_pdf_page: int
     tencent_ocr_enable_multiple_page: bool
     seed_demo_users: bool
+    bootstrap_admin: BootstrapAdmin | None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -51,6 +60,7 @@ class Settings:
         _load_env_file(project_dir)
         data_dir = _resolve_env_path(os.getenv("DATA_DIR"), backend_dir / "data", project_dir)
         upload_dir = _resolve_env_path(os.getenv("UPLOAD_DIR"), data_dir / "uploads", project_dir)
+        bootstrap_admin = _bootstrap_admin_from_env()
         return cls(
             secret_key=os.getenv("SECRET_KEY", "dev-secret-change-me"),
             data_dir=data_dir,
@@ -63,5 +73,21 @@ class Settings:
             tencent_ocr_action=os.getenv("TENCENT_OCR_ACTION", "RecognizeGeneralInvoice"),
             tencent_ocr_pdf_page=_env_int("TENCENT_OCR_PDF_PAGE", 1),
             tencent_ocr_enable_multiple_page=os.getenv("TENCENT_OCR_ENABLE_MULTIPLE_PAGE", "true").lower() == "true",
-            seed_demo_users=os.getenv("SEED_DEMO_USERS", "true").lower() == "true",
+            seed_demo_users=os.getenv("SEED_DEMO_USERS", "false").lower() == "true",
+            bootstrap_admin=bootstrap_admin,
         )
+
+
+def _bootstrap_admin_from_env() -> BootstrapAdmin | None:
+    username = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "").strip()
+    password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+    if not username and not password:
+        return None
+    if not username or not password:
+        raise ValueError("BOOTSTRAP_ADMIN_USERNAME 和 BOOTSTRAP_ADMIN_PASSWORD 必须同时设置")
+    return BootstrapAdmin(
+        username=username,
+        password=password,
+        employee_name=os.getenv("BOOTSTRAP_ADMIN_EMPLOYEE_NAME", username).strip() or username,
+        company_entity=os.getenv("BOOTSTRAP_ADMIN_COMPANY_ENTITY", "未配置公司主体").strip() or "未配置公司主体",
+    )

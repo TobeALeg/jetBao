@@ -70,18 +70,6 @@ export interface Expense {
   allocations: ExpenseAllocation[];
 }
 
-export interface ExpenseCreatePayload {
-  project_name: string;
-  category: string;
-  expense_month: string;
-  actual_amount: number;
-  invoice_amount: number | null;
-  is_substitute: boolean;
-  substitute_reason: string;
-  note: string;
-  attachment_ids: number[];
-}
-
 export interface DraftExpenseCreatePayload {
   project_name: string;
   actual_amount: number;
