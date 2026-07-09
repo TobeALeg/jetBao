@@ -1,5 +1,11 @@
 # AGENTS.md
 
+## Local collaboration rules
+
+- Do not use Playwright CLI, browser automation, or screenshot-based visual QA by default.
+- Prefer code review, type checks, builds, API checks, and lightweight DOM/content checks for routine verification.
+- Use Playwright CLI or screenshots only when the user explicitly asks for visual verification, or after asking first and getting confirmation.
+
 ## Agent skills
 
 ### Issue tracker
