@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, FilePlus2, ReceiptText, ShieldCheck, UserRound, Users } from "lucide-vue-next";
+import { ClipboardList, ReceiptText, ShieldCheck, UserRound, Users } from "lucide-vue-next";
 import { computed } from "vue";
 import type { Component } from "vue";
 import type { User, ViewKey, WorkspaceMode } from "../types";
@@ -24,8 +24,8 @@ interface NavItem {
 }
 
 const personalNavItems: NavItem[] = [
-  { key: "monthly", label: "当月报销", icon: ReceiptText },
-  { key: "history", label: "所有记录", icon: FilePlus2 }
+  { key: "monthly", label: "我的报销", icon: ReceiptText },
+  { key: "materials", label: "待补材料", icon: ClipboardList }
 ];
 
 const adminNavItems: NavItem[] = [
@@ -36,7 +36,7 @@ const adminNavItems: NavItem[] = [
 const navItems = computed(() => (props.workspaceMode === "admin" ? adminNavItems : personalNavItems));
 
 function badgeFor(key: ViewKey): number {
-  if (key === "monthly") return props.draftCount;
+  if (key === "materials") return props.draftCount + props.pendingOcrCount;
   return 0;
 }
 
