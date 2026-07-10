@@ -20,6 +20,7 @@
 
 1. 花费池：前端提交项目名称、金额、月份、类别，后端写入 `expenses.status = draft`；后端不提供无发票匹配的直接 `submitted` 创建入口。
 2. 交易记录附件：用户在我的报销页或报销整理工作栏上传付款截图、订单截图等图片，前端先调用 `/api/attachments/batch`，再通过 `/api/expenses/{expense_id}/attachments` 写入 `expense_attachments`。
+   员工新建报销工作区沿用该批量接口上传多张佐证；发票使用 `/api/attachments` 单文件上传，识别后通过 `/api/expense-allocations/batch` 绑定到待处理花费。
 3. 发票暂存：用户上传发票附件时，后端立即保存文件并 OCR，写入 `attachments.pool_status = staged`。
 4. 工作栏匹配：用户为同一条花费选择一张或多张发票，后端写入 `expense_invoice_allocations`；同一发票条目不能再匹配其他花费。发票购买方精确命中任一允许公司主体即可提交；只部分命中时必须带 `buyer_confirmed` 人工确认标记。
 5. 发票池：用户点击“加入发票池”后，`/api/attachments/pool` 把附件改成 `pool_status = pooled`；`/api/invoice-pool` 只返回 `pooled` 且未挂到 `expense_attachments` 的附件，并返回票面金额、已匹配金额和剩余可用金额。

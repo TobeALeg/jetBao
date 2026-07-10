@@ -116,6 +116,8 @@ class ExpenseCreateRequest(BaseModel):
     actual_amount: float = Field(gt=0)
     expense_month: str = Field(pattern=r"^\d{4}-\d{2}$")
     category: str = "差旅交通"
+    is_substitute: bool = False
+    substitute_reason: str = ""
 
 
 class ExpenseSubmitRequest(BaseModel):
@@ -128,6 +130,8 @@ class ExpenseSubmitRequest(BaseModel):
     attachment_ids: list[int] = []
     note: str = ""
     buyer_confirmed: bool = False
+    is_substitute: bool = False
+    substitute_reason: str = ""
 
 
 class ExpenseResponse(BaseModel):

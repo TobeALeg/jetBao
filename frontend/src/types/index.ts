@@ -90,6 +90,8 @@ export interface ExpenseSubmitPayload {
   attachment_ids: number[];
   note: string;
   buyer_confirmed?: boolean;
+  is_substitute?: boolean;
+  substitute_reason?: string;
 }
 
 // Legacy alias
@@ -100,6 +102,8 @@ export interface ExpenseCreatePayload {
   actual_amount: number;
   expense_month: string;
   category: string;
+  is_substitute?: boolean;
+  substitute_reason?: string;
 }
 
 export interface ExpenseItemCreatePayload {

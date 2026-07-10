@@ -325,17 +325,12 @@ def _sync_expense_after_allocation(connection: sqlite3.Connection, expense_id: i
         UPDATE expenses
         SET
             invoice_amount = ?,
-            is_substitute = CASE
-                WHEN ? THEN 1
-                WHEN ? THEN 0
-                ELSE is_substitute
-            END
+            is_substitute = CASE WHEN ? THEN 1 ELSE is_substitute END
         WHERE id = ?
         """,
         (
             allocated_amount if allocated_amount else None,
             int(is_mismatch),
-            int(not is_mismatch and allocated_amount > 0),
             expense_id,
         ),
     )
@@ -737,7 +732,7 @@ def create_expense(
                 actual_amount, invoice_amount, is_substitute, substitute_reason,
                 note, has_duplicate, status
             )
-            VALUES (?, ?, ?, ?, ?, ?, NULL, 0, '', ?, 0, 'pending')
+            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 'pending')
             """,
             (
                 user["id"],
@@ -746,6 +741,8 @@ def create_expense(
                 payload.category.strip() or "差旅交通",
                 payload.expense_month,
                 payload.actual_amount,
+                int(payload.is_substitute),
+                payload.substitute_reason.strip(),
                 "",
             ),
         )
@@ -778,7 +775,7 @@ def create_and_submit_expense(
                 actual_amount, invoice_amount, is_substitute, substitute_reason,
                 note, has_duplicate, status
             )
-            VALUES (?, ?, ?, ?, ?, ?, NULL, 0, '', ?, 0, 'pending')
+            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 'pending')
             """,
             (
                 user["id"],
@@ -787,6 +784,8 @@ def create_and_submit_expense(
                 payload.category.strip() or "差旅交通",
                 payload.expense_month,
                 payload.actual_amount,
+                int(payload.is_substitute),
+                payload.substitute_reason.strip(),
                 "",
             ),
         )
