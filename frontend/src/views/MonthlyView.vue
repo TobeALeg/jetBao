@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { CheckCircle2, FilePlus2, ImagePlus, Plus, ReceiptText, X } from "lucide-vue-next";
+import { CheckCircle2, FilePlus2, ImagePlus, Plus, X } from "lucide-vue-next";
 import { currentReimbursementMonth, formatCurrency } from "../utils/format";
 import type { User } from "../types";
 
@@ -88,6 +88,22 @@ function recordStateClass(state: RecordState) {
   if (state === "missing_material") return "bg-amber-100 text-amber-800";
   if (state === "ready") return "bg-teal-50 text-teal-800";
   return "bg-slate-100 text-slate-600";
+}
+
+function completeMaterials(record: MonthRecord) {
+  record.evidenceCount = 2;
+  record.invoices = [
+    { amount: record.amount, projectName: record.projectName, seller: "已识别销售方", type: "电子普通发票" },
+  ];
+  record.state = "ready";
+}
+
+function submitRecord(record: MonthRecord) {
+  record.state = "submitted";
+}
+
+function withdrawRecord(record: MonthRecord) {
+  record.state = "ready";
 }
 </script>
 
@@ -181,26 +197,37 @@ function recordStateClass(state: RecordState) {
         <h2 class="section-title">本月记录</h2>
         <span class="text-xs text-slate-500">{{ records.length }} 笔</span>
       </div>
-      <div class="divide-y divide-slate-200 border-y border-slate-200 bg-white">
-        <article v-for="record in records" :key="record.id" class="px-5 py-5">
-          <div class="flex flex-wrap items-start justify-between gap-4">
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="status-pill" :class="recordStateClass(record.state)">{{ recordStateLabel(record.state) }}</span>
-                <span v-if="record.substitute" class="status-pill bg-orange-100 text-orange-800">替票</span>
-                <span v-if="record.evidenceCount === 0" class="status-pill bg-amber-50 text-amber-800">缺佐证</span>
-                <span class="text-xs text-slate-500">{{ record.category }}</span>
-              </div>
-              <p class="mt-2 font-semibold text-ink">{{ record.projectName }}</p>
-              <p class="mt-1 text-sm text-slate-500">
-                佐证材料 {{ record.evidenceCount }} 份
-                <span class="px-1 text-slate-300">·</span>
-                <span :class="record.invoices.length ? 'text-teal-700' : 'text-amber-700'">{{ record.invoices.length ? '发票已上传' : '未上传发票' }}</span>
-              </p>
-            </div>
-            <div class="flex items-center gap-3"><strong class="text-base text-ink">{{ formatCurrency(record.amount) }}</strong><button v-if="record.state !== 'submitted'" class="secondary-button h-9 px-3 text-xs" type="button" @click="isComposerOpen = true"><ReceiptText class="h-3.5 w-3.5" /> 补充材料</button></div>
-          </div>
-        </article>
+      <div class="overflow-x-auto border-y border-slate-200 bg-white">
+        <table class="min-w-[900px] w-full text-left text-[13px]">
+          <thead class="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+            <tr>
+              <th class="px-4 py-2.5">状态</th>
+              <th class="px-4 py-2.5">报销事项</th>
+              <th class="px-4 py-2.5">类别</th>
+              <th class="px-4 py-2.5 text-right">金额</th>
+              <th class="px-4 py-2.5">替票</th>
+              <th class="px-4 py-2.5">佐证</th>
+              <th class="px-4 py-2.5">发票</th>
+              <th class="px-4 py-2.5 text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr v-for="record in records" :key="record.id" class="h-14 transition hover:bg-slate-50">
+              <td class="px-4 py-2"><span class="status-pill" :class="recordStateClass(record.state)">{{ recordStateLabel(record.state) }}</span></td>
+              <td class="px-4 py-2 font-medium text-ink">{{ record.projectName }}</td>
+              <td class="px-4 py-2 text-slate-600">{{ record.category }}</td>
+              <td class="px-4 py-2 text-right font-medium text-ink">{{ formatCurrency(record.amount) }}</td>
+              <td class="px-4 py-2"><span :class="record.substitute ? 'text-orange-700' : 'text-slate-500'">{{ record.substitute ? '是' : '否' }}</span></td>
+              <td class="px-4 py-2"><span :class="record.evidenceCount ? 'text-slate-700' : 'text-amber-700'">{{ record.evidenceCount ? `${record.evidenceCount} 份` : '未上传' }}</span></td>
+              <td class="px-4 py-2"><span :class="record.invoices.length ? 'text-teal-700' : 'text-amber-700'">{{ record.invoices.length ? '已上传' : '未上传' }}</span></td>
+              <td class="px-4 py-2 text-right">
+                <button v-if="record.state === 'missing_material'" class="secondary-button h-8 px-2.5 text-xs" type="button" @click="completeMaterials(record)">补材料</button>
+                <button v-else-if="record.state === 'ready'" class="primary-button h-8 px-2.5 text-xs" type="button" @click="submitRecord(record)">提交报销</button>
+                <button v-else class="secondary-button h-8 px-2.5 text-xs" type="button" @click="withdrawRecord(record)">撤回</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
   </div>
