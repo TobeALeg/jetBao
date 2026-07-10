@@ -192,18 +192,13 @@ function recordStateClass(state: RecordState) {
                 <span class="text-xs text-slate-500">{{ record.category }}</span>
               </div>
               <p class="mt-2 font-semibold text-ink">{{ record.projectName }}</p>
-              <p class="mt-1 text-sm text-slate-500">佐证材料 {{ record.evidenceCount }} 份</p>
+              <p class="mt-1 text-sm text-slate-500">
+                佐证材料 {{ record.evidenceCount }} 份
+                <span class="px-1 text-slate-300">·</span>
+                <span :class="record.invoices.length ? 'text-teal-700' : 'text-amber-700'">{{ record.invoices.length ? '发票已上传' : '未上传发票' }}</span>
+              </p>
             </div>
             <div class="flex items-center gap-3"><strong class="text-base text-ink">{{ formatCurrency(record.amount) }}</strong><button v-if="record.state !== 'submitted'" class="secondary-button h-9 px-3 text-xs" type="button" @click="isComposerOpen = true"><ReceiptText class="h-3.5 w-3.5" /> 补充材料</button></div>
-          </div>
-
-          <div v-if="record.invoices.length" class="mt-4 grid gap-2 sm:grid-cols-2">
-            <div v-for="invoice in record.invoices" :key="`${invoice.seller}-${invoice.projectName}`" class="grid grid-cols-2 gap-x-4 gap-y-2 border-l-2 px-3 py-3 text-xs text-slate-500" :class="record.substitute ? 'border-orange-500 bg-orange-50/60' : 'border-teal-600 bg-slate-50'">
-              <span>金额</span><strong class="text-right text-slate-900">{{ formatCurrency(invoice.amount) }}</strong>
-              <span>项目名称</span><strong class="text-right text-slate-900">{{ invoice.projectName }}</strong>
-              <span>销售方</span><strong class="text-right text-slate-900">{{ invoice.seller }}</strong>
-              <span>票种</span><strong class="text-right text-slate-900">{{ invoice.type }}</strong>
-            </div>
           </div>
         </article>
       </div>
