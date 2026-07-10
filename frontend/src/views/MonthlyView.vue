@@ -171,11 +171,11 @@ type PreparedInvoiceLink = {
   buyerConfirmed: boolean;
 };
 
-function prepareInvoiceLink(attachment: Attachment, actualAmount: number): PreparedInvoiceLink {
+function prepareInvoiceLink(attachment: Attachment, actualAmount: number, allowUnderage: boolean): PreparedInvoiceLink {
   const invoice = invoiceIndexAndItem(attachment);
   if (!invoice) throw new Error("发票未识别到有效金额，请重新上传");
   const amount = Number(invoice.item.amount);
-  if (amount < actualAmount) throw new Error("发票金额不足，请补充金额更足的发票");
+  if (amount < actualAmount && !allowUnderage) throw new Error("发票金额不足，请补充金额更足的发票");
   const note = amount === actualAmount ? "" : window.prompt("票面金额高于报销金额，请填写替票说明：", "替票")?.trim() ?? "";
   if (amount > actualAmount && !note) throw new Error("需要填写替票说明");
   const buyerConfirmed = isBuyerConfirmationNeeded(invoice.item)
@@ -185,7 +185,7 @@ function prepareInvoiceLink(attachment: Attachment, actualAmount: number): Prepa
   return { ...invoice, note, buyerConfirmed };
 }
 
-async function linkInvoiceToExpense(expenseId: number, attachment: Attachment, actualAmount: number, prepared = prepareInvoiceLink(attachment, actualAmount)): Promise<Expense> {
+async function linkInvoiceToExpense(expenseId: number, attachment: Attachment, prepared: PreparedInvoiceLink): Promise<Expense> {
   return createExpenseAllocationsBatch({
     expense_id: expenseId,
     invoices: [{ attachment_id: attachment.id, invoice_item_index: prepared.index }],
@@ -226,7 +226,8 @@ async function handleInvoiceFiles(files: File[]) {
   try {
     const uploaded = await uploadAttachment(files[0]);
     if (targetExpenseId.value) {
-      await linkInvoiceToExpense(targetExpenseId.value, uploaded, Number(expenseForm.value.actual_amount));
+      const prepared = prepareInvoiceLink(uploaded, Number(expenseForm.value.actual_amount), true);
+      await linkInvoiceToExpense(targetExpenseId.value, uploaded, prepared);
       await load();
       success.value = "发票已上传并关联";
     } else {
@@ -275,7 +276,7 @@ async function saveNewExpense(submitAfter: boolean) {
     category: expenseForm.value.category,
     is_substitute: isNewSubstitute.value,
   };
-  const prepared = stagedInvoice.value ? prepareInvoiceLink(stagedInvoice.value, actualAmount) : null;
+  const prepared = stagedInvoice.value ? prepareInvoiceLink(stagedInvoice.value, actualAmount, !submitAfter) : null;
   if (submitAfter) {
     if (!stagedInvoice.value || !prepared) throw new Error("请先上传发票");
     return createAndSubmitExpense({
@@ -292,7 +293,7 @@ async function saveNewExpense(submitAfter: boolean) {
     created = await linkExpenseAttachments(created.id, { attachment_ids: evidenceAttachments.value.map((item) => item.id) });
   }
   if (stagedInvoice.value) {
-    created = await linkInvoiceToExpense(created.id, stagedInvoice.value, actualAmount, prepared ?? undefined);
+    created = await linkInvoiceToExpense(created.id, stagedInvoice.value, prepared as PreparedInvoiceLink);
   }
   return created;
 }
