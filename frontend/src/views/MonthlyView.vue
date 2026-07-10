@@ -137,26 +137,24 @@ function withdrawRecord(record: MonthRecord) {
 
     <section v-if="isComposerOpen" class="border-y border-slate-200 bg-white">
       <div class="p-5">
-        <div class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div class="grid divide-y divide-slate-200 lg:grid-cols-[minmax(0,1fr)_150px_190px_150px] lg:divide-x lg:divide-y-0">
-            <label class="block px-4 py-3">
-              <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">报销事项</span>
-              <input class="mt-1 w-full border-0 bg-transparent p-0 text-[15px] font-medium text-ink outline-none placeholder:text-slate-400" value="客户拜访打车" />
-            </label>
-            <label class="block px-4 py-3">
-              <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">金额</span>
-              <input class="mt-1 w-full border-0 bg-transparent p-0 text-[15px] font-medium text-ink outline-none" inputmode="decimal" value="86.00" />
-            </label>
-            <label class="block px-4 py-3">
-              <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">类别</span>
-              <select class="mt-1 w-full border-0 bg-transparent p-0 text-[15px] font-medium text-ink outline-none"><option>差旅交通</option><option>办公用品</option><option>市场活动</option></select>
-            </label>
-            <div class="px-4 py-3">
-              <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">替票</span>
-              <div class="mt-1 inline-flex overflow-hidden rounded border border-slate-200 text-[13px] font-medium">
-                <button class="h-6 px-3 transition" :class="!isNewSubstitute ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'" type="button" @click="isNewSubstitute = false">否</button>
-                <button class="h-6 border-l border-slate-200 px-3 transition" :class="isNewSubstitute ? 'bg-orange-500 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'" type="button" @click="isNewSubstitute = true">是</button>
-              </div>
+        <div class="grid gap-x-7 gap-y-5 lg:grid-cols-[minmax(0,1fr)_150px_190px_150px]">
+          <label class="block">
+            <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">报销事项</span>
+            <input class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition focus:border-teal-700" value="客户拜访打车" />
+          </label>
+          <label class="block">
+            <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">金额</span>
+            <input class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition focus:border-teal-700" inputmode="decimal" value="86.00" />
+          </label>
+          <label class="block">
+            <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">类别</span>
+            <select class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition focus:border-teal-700"><option>差旅交通</option><option>办公用品</option><option>市场活动</option></select>
+          </label>
+          <div>
+            <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">替票</span>
+            <div class="mt-1 flex h-9 items-center gap-4 border-b border-slate-300 text-[14px] font-medium">
+              <button class="h-full border-b-2 px-1 transition" :class="!isNewSubstitute ? 'border-slate-800 text-ink' : 'border-transparent text-slate-400 hover:text-slate-700'" type="button" @click="isNewSubstitute = false">否</button>
+              <button class="h-full border-b-2 px-1 transition" :class="isNewSubstitute ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-400 hover:text-slate-700'" type="button" @click="isNewSubstitute = true">是</button>
             </div>
           </div>
         </div>
