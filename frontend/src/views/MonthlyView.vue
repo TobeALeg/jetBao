@@ -229,9 +229,6 @@ function withdrawRecord(record: MonthRecord) {
             </tr>
           </tbody>
           <tbody v-if="submittedRecords.length" class="divide-y divide-slate-100 border-t-4 border-slate-300">
-            <tr class="bg-slate-50">
-              <td colspan="8" class="px-4 py-2 text-xs font-semibold text-slate-600">已提交 <span class="ml-2 font-normal text-slate-400">已进入正式报销记录</span></td>
-            </tr>
             <tr v-for="record in submittedRecords" :key="record.id" class="h-14 bg-slate-50/40 transition hover:bg-slate-50">
               <td class="px-4 py-2"><span class="status-pill" :class="recordStateClass(record.state)">{{ recordStateLabel(record.state) }}</span></td>
               <td class="px-4 py-2 font-medium text-ink">{{ record.projectName }}</td>
