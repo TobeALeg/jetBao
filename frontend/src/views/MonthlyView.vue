@@ -75,6 +75,7 @@ const records = ref<MonthRecord[]>([
 ]);
 
 const submittedRecords = computed(() => records.value.filter((record) => record.state === "submitted"));
+const activeRecords = computed(() => records.value.filter((record) => record.state !== "submitted"));
 const submittedTotal = computed(() => submittedRecords.value.reduce((sum, record) => sum + record.amount, 0));
 const materialMissingCount = computed(() => records.value.filter((record) => record.state === "missing_material" || record.evidenceCount === 0).length);
 
@@ -212,7 +213,7 @@ function withdrawRecord(record: MonthRecord) {
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            <tr v-for="record in records" :key="record.id" class="h-14 transition hover:bg-slate-50">
+            <tr v-for="record in activeRecords" :key="record.id" class="h-14 transition hover:bg-slate-50">
               <td class="px-4 py-2"><span class="status-pill" :class="recordStateClass(record.state)">{{ recordStateLabel(record.state) }}</span></td>
               <td class="px-4 py-2 font-medium text-ink">{{ record.projectName }}</td>
               <td class="px-4 py-2 text-slate-600">{{ record.category }}</td>
@@ -225,6 +226,21 @@ function withdrawRecord(record: MonthRecord) {
                 <button v-else-if="record.state === 'ready'" class="primary-button h-8 px-2.5 text-xs" type="button" @click="submitRecord(record)">提交报销</button>
                 <button v-else class="secondary-button h-8 px-2.5 text-xs" type="button" @click="withdrawRecord(record)">撤回</button>
               </td>
+            </tr>
+          </tbody>
+          <tbody v-if="submittedRecords.length" class="divide-y divide-slate-100 border-t-4 border-slate-300">
+            <tr class="bg-slate-50">
+              <td colspan="8" class="px-4 py-2 text-xs font-semibold text-slate-600">已提交 <span class="ml-2 font-normal text-slate-400">已进入正式报销记录</span></td>
+            </tr>
+            <tr v-for="record in submittedRecords" :key="record.id" class="h-14 bg-slate-50/40 transition hover:bg-slate-50">
+              <td class="px-4 py-2"><span class="status-pill" :class="recordStateClass(record.state)">{{ recordStateLabel(record.state) }}</span></td>
+              <td class="px-4 py-2 font-medium text-ink">{{ record.projectName }}</td>
+              <td class="px-4 py-2 text-slate-600">{{ record.category }}</td>
+              <td class="px-4 py-2 text-right font-medium text-ink">{{ formatCurrency(record.amount) }}</td>
+              <td class="px-4 py-2"><span :class="record.substitute ? 'text-orange-700' : 'text-slate-500'">{{ record.substitute ? '是' : '否' }}</span></td>
+              <td class="px-4 py-2"><span :class="record.evidenceCount ? 'text-slate-700' : 'text-amber-700'">{{ record.evidenceCount ? `${record.evidenceCount} 份` : '未上传' }}</span></td>
+              <td class="px-4 py-2"><span :class="record.invoices.length ? 'text-teal-700' : 'text-amber-700'">{{ record.invoices.length ? '已上传' : '未上传' }}</span></td>
+              <td class="px-4 py-2 text-right"><button class="secondary-button h-8 px-2.5 text-xs" type="button" @click="withdrawRecord(record)">撤回</button></td>
             </tr>
           </tbody>
         </table>
