@@ -37,6 +37,7 @@ const month = currentReimbursementMonth();
 const isComposerOpen = ref(true);
 const hasNewInvoice = ref(true);
 const hasNewEvidence = ref(true);
+const isNewSubstitute = ref(false);
 
 // 静态布局：下一步再把这组展示模型接回 expenses / attachments API。
 const records = ref<MonthRecord[]>([
@@ -136,23 +137,28 @@ function withdrawRecord(record: MonthRecord) {
 
     <section v-if="isComposerOpen" class="border-y border-slate-200 bg-white">
       <div class="p-5">
-        <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_140px_140px_120px]">
-          <label class="block">
-            <span class="field-label">报销事项</span>
-            <input class="field-input mt-1" value="客户拜访打车" />
-          </label>
-          <label class="block">
-            <span class="field-label">金额</span>
-            <input class="field-input mt-1" inputmode="decimal" value="86.00" />
-          </label>
-          <label class="block">
-            <span class="field-label">类别</span>
-            <select class="field-input mt-1"><option>差旅交通</option><option>办公用品</option><option>市场活动</option></select>
-          </label>
-          <label class="block">
-            <span class="field-label">替票</span>
-            <select class="field-input mt-1"><option>否</option><option>是</option></select>
-          </label>
+        <div class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div class="grid divide-y divide-slate-200 lg:grid-cols-[minmax(0,1fr)_150px_190px_150px] lg:divide-x lg:divide-y-0">
+            <label class="block px-4 py-3">
+              <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">报销事项</span>
+              <input class="mt-1 w-full border-0 bg-transparent p-0 text-[15px] font-medium text-ink outline-none placeholder:text-slate-400" value="客户拜访打车" />
+            </label>
+            <label class="block px-4 py-3">
+              <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">金额</span>
+              <input class="mt-1 w-full border-0 bg-transparent p-0 text-[15px] font-medium text-ink outline-none" inputmode="decimal" value="86.00" />
+            </label>
+            <label class="block px-4 py-3">
+              <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">类别</span>
+              <select class="mt-1 w-full border-0 bg-transparent p-0 text-[15px] font-medium text-ink outline-none"><option>差旅交通</option><option>办公用品</option><option>市场活动</option></select>
+            </label>
+            <div class="px-4 py-3">
+              <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">替票</span>
+              <div class="mt-1 inline-flex overflow-hidden rounded border border-slate-200 text-[13px] font-medium">
+                <button class="h-6 px-3 transition" :class="!isNewSubstitute ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'" type="button" @click="isNewSubstitute = false">否</button>
+                <button class="h-6 border-l border-slate-200 px-3 transition" :class="isNewSubstitute ? 'bg-orange-500 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'" type="button" @click="isNewSubstitute = true">是</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
