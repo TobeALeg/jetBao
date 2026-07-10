@@ -119,7 +119,7 @@ function recordStateClass(state: RecordState) {
 
     <section v-if="isComposerOpen" class="border-y border-slate-200 bg-white">
       <div class="p-5">
-        <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px_160px]">
+        <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_140px_140px_120px]">
           <label class="block">
             <span class="field-label">报销事项</span>
             <input class="field-input mt-1" value="客户拜访打车" />
@@ -132,27 +132,31 @@ function recordStateClass(state: RecordState) {
             <span class="field-label">类别</span>
             <select class="field-input mt-1"><option>差旅交通</option><option>办公用品</option><option>市场活动</option></select>
           </label>
+          <label class="block">
+            <span class="field-label">替票</span>
+            <select class="field-input mt-1"><option>否</option><option>是</option></select>
+          </label>
         </div>
       </div>
 
       <div class="grid gap-px border-y border-slate-200 bg-slate-200 lg:grid-cols-2">
         <div class="space-y-3 bg-white p-5">
-          <div class="flex items-center justify-between"><span class="field-label">上传佐证材料</span><span class="text-xs text-slate-500">付款或订单截图</span></div>
+          <div class="flex items-center justify-between"><span class="field-label">上传佐证材料</span><span class="text-xs text-slate-500">可一次上传多张</span></div>
           <button class="flex min-h-28 w-full flex-col items-center justify-center border border-dashed border-slate-300 bg-slate-50 px-4 text-center transition hover:border-teal-600 hover:bg-teal-50" type="button" @click="hasNewEvidence = true">
             <ImagePlus class="h-5 w-5 text-teal-700" />
-            <span class="mt-2 text-sm font-medium text-slate-800">点击或拖拽上传佐证材料</span>
+            <span class="mt-2 text-sm font-medium text-slate-800">点击或拖拽上传佐证材料（可多选）</span>
           </button>
-          <div v-if="hasNewEvidence" class="flex items-center gap-3 border-l-2 border-slate-400 bg-slate-50 px-3 py-3 text-xs text-slate-600">
-            <ImagePlus class="h-4 w-4 text-slate-500" />
-            <span class="font-medium text-slate-800">滴滴行程单.png</span>
+          <div v-if="hasNewEvidence" class="space-y-2 border-l-2 border-slate-400 bg-slate-50 px-3 py-3 text-xs text-slate-600">
+            <div class="flex items-center gap-3"><ImagePlus class="h-4 w-4 text-slate-500" /><span class="font-medium text-slate-800">滴滴行程单.png</span></div>
+            <div class="flex items-center gap-3"><ImagePlus class="h-4 w-4 text-slate-500" /><span class="font-medium text-slate-800">支付截图.png</span></div>
           </div>
         </div>
 
         <div class="space-y-3 bg-white p-5">
-          <div class="flex items-center justify-between"><span class="field-label">上传发票</span><span class="text-xs text-slate-500">上传后自动识别</span></div>
+          <div class="flex items-center justify-between"><span class="field-label">上传发票</span><span class="text-xs text-slate-500">一次上传 1 张</span></div>
           <button class="flex min-h-28 w-full flex-col items-center justify-center border border-dashed border-slate-300 bg-slate-50 px-4 text-center transition hover:border-teal-600 hover:bg-teal-50" type="button" @click="hasNewInvoice = true">
             <FilePlus2 class="h-5 w-5 text-teal-700" />
-            <span class="mt-2 text-sm font-medium text-slate-800">点击或拖拽上传发票</span>
+            <span class="mt-2 text-sm font-medium text-slate-800">点击或拖拽上传 1 张发票</span>
           </button>
           <div v-if="hasNewInvoice" class="grid grid-cols-2 gap-x-4 gap-y-2 border-l-2 border-teal-600 bg-slate-50 px-3 py-3 text-xs text-slate-500">
               <span>金额</span><strong class="text-right text-slate-900">¥86.00</strong>
