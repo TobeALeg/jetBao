@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from "vue";
 import AppShell from "./components/AppShell.vue";
 import LoginView from "./views/LoginView.vue";
 import MonthlyView from "./views/MonthlyView.vue";
-import PendingMaterialsView from "./views/PendingMaterialsView.vue";
 import HistoryView from "./views/HistoryView.vue";
 import AdminUsersView from "./views/AdminUsersView.vue";
 import { clearToken, getMe, getToken, listExpenses } from "./services/api";
@@ -74,7 +73,7 @@ function handleChangeWorkspaceMode(mode: WorkspaceMode) {
 onMounted(restoreSession);
 watch(refreshKey, loadExpenses);
 watch(() => currentView.value, (v) => {
-  if (v === "monthly" || v === "materials") refreshKey.value += 1;
+  if (v === "monthly") refreshKey.value += 1;
 });
 </script>
 
@@ -98,13 +97,6 @@ watch(() => currentView.value, (v) => {
   >
     <MonthlyView
       v-show="currentView === 'monthly'"
-      :user="user"
-      :refresh-key="refreshKey"
-      @refreshed="loadExpenses()"
-      @open-materials="currentView = 'materials'"
-    />
-    <PendingMaterialsView
-      v-show="currentView === 'materials'"
       :user="user"
       :refresh-key="refreshKey"
       @refreshed="loadExpenses()"
