@@ -319,18 +319,18 @@ def _sync_expense_after_allocation(connection: sqlite3.Connection, expense_id: i
         return
     allocated_amount = _allocated_amount_for_expense(connection, expense_id)
     actual_amount = round(float(expense["actual_amount"]), 2)
-    is_mismatch = allocated_amount != actual_amount
+    is_overage = allocated_amount > actual_amount
     connection.execute(
         """
         UPDATE expenses
         SET
             invoice_amount = ?,
-            is_substitute = CASE WHEN ? THEN 1 ELSE is_substitute END
+            is_substitute = CASE WHEN ? THEN 1 ELSE 0 END
         WHERE id = ?
         """,
         (
             allocated_amount if allocated_amount else None,
-            int(is_mismatch),
+            int(is_overage),
             expense_id,
         ),
     )

@@ -5,6 +5,7 @@ import { buyerMatchStatus, isDifferentAllowedBuyer } from "../constants/companyE
 import { DEFAULT_EXPENSE_CATEGORY, EXPENSE_CATEGORIES } from "../constants/expenseCategories";
 import {
   createExpenseAllocationsBatch,
+  createAndSubmitExpense,
   createExpenseDraft,
   linkExpenseAttachments,
   listExpenses,
@@ -69,7 +70,8 @@ const selectedInvoiceItem = computed(() => {
   if (!Array.isArray(items)) return null;
   return items.find((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).amount === "number") as Record<string, unknown> | null;
 });
-const canSubmitNew = computed(() => Boolean(stagedInvoice.value && selectedInvoiceItem.value && Number(expenseForm.value.actual_amount) > 0));
+const selectedInvoiceAmount = computed(() => Number(selectedInvoiceItem.value?.amount) || 0);
+const canSubmitNew = computed(() => Boolean(stagedInvoice.value && selectedInvoiceItem.value && Number(expenseForm.value.actual_amount) > 0 && selectedInvoiceAmount.value >= Number(expenseForm.value.actual_amount)));
 const canSubmitExisting = computed(() => Boolean(targetExpense.value && targetExpense.value.allocation_count > 0 && targetExpense.value.remaining_amount <= 0));
 
 function recordState(expense: Expense): RecordState {
@@ -162,27 +164,33 @@ function invoiceIndexAndItem(attachment: Attachment): { index: number; item: Rec
   return index >= 0 ? { index, item: items[index] } : null;
 }
 
-function invoiceNoteFor(item: Record<string, unknown>, actualAmount: number): string {
-  const amount = Number(item.amount);
-  if (amount <= actualAmount) return "";
-  const note = window.prompt("票面金额高于报销金额，请填写替票说明：", "替票");
-  return note?.trim() ?? "";
-}
+type PreparedInvoiceLink = {
+  index: number;
+  item: Record<string, unknown>;
+  note: string;
+  buyerConfirmed: boolean;
+};
 
-async function linkInvoiceToExpense(expenseId: number, attachment: Attachment, actualAmount: number): Promise<Expense> {
+function prepareInvoiceLink(attachment: Attachment, actualAmount: number): PreparedInvoiceLink {
   const invoice = invoiceIndexAndItem(attachment);
   if (!invoice) throw new Error("发票未识别到有效金额，请重新上传");
-  const note = invoiceNoteFor(invoice.item, actualAmount);
-  if (Number(invoice.item.amount) > actualAmount && !note) throw new Error("需要填写替票说明");
+  const amount = Number(invoice.item.amount);
+  if (amount < actualAmount) throw new Error("发票金额不足，请补充金额更足的发票");
+  const note = amount === actualAmount ? "" : window.prompt("票面金额高于报销金额，请填写替票说明：", "替票")?.trim() ?? "";
+  if (amount > actualAmount && !note) throw new Error("需要填写替票说明");
   const buyerConfirmed = isBuyerConfirmationNeeded(invoice.item)
     ? window.confirm("发票购买方需要人工确认，确认继续吗？")
     : false;
   if (isBuyerConfirmationNeeded(invoice.item) && !buyerConfirmed) throw new Error("已取消提交，请确认发票购买方");
+  return { ...invoice, note, buyerConfirmed };
+}
+
+async function linkInvoiceToExpense(expenseId: number, attachment: Attachment, actualAmount: number, prepared = prepareInvoiceLink(attachment, actualAmount)): Promise<Expense> {
   return createExpenseAllocationsBatch({
     expense_id: expenseId,
-    invoices: [{ attachment_id: attachment.id, invoice_item_index: invoice.index }],
-    note,
-    buyer_confirmed: buyerConfirmed,
+    invoices: [{ attachment_id: attachment.id, invoice_item_index: prepared.index }],
+    note: prepared.note,
+    buyer_confirmed: prepared.buyerConfirmed,
   });
 }
 
@@ -267,16 +275,24 @@ async function saveNewExpense(submitAfter: boolean) {
     category: expenseForm.value.category,
     is_substitute: isNewSubstitute.value,
   };
+  const prepared = stagedInvoice.value ? prepareInvoiceLink(stagedInvoice.value, actualAmount) : null;
+  if (submitAfter) {
+    if (!stagedInvoice.value || !prepared) throw new Error("请先上传发票");
+    return createAndSubmitExpense({
+      ...payload,
+      invoices: [{ attachment_id: stagedInvoice.value.id, invoice_item_index: prepared.index }],
+      attachment_ids: evidenceAttachments.value.map((item) => item.id),
+      note: prepared.note,
+      buyer_confirmed: prepared.buyerConfirmed,
+    });
+  }
+
   let created = await createExpenseDraft(payload);
   if (evidenceAttachments.value.length) {
     created = await linkExpenseAttachments(created.id, { attachment_ids: evidenceAttachments.value.map((item) => item.id) });
   }
   if (stagedInvoice.value) {
-    created = await linkInvoiceToExpense(created.id, stagedInvoice.value, actualAmount);
-  }
-  if (submitAfter) {
-    if (!created.allocation_count || created.remaining_amount > 0) throw new Error("请先上传金额足够的发票");
-    await submitExpense(created.id);
+    created = await linkInvoiceToExpense(created.id, stagedInvoice.value, actualAmount, prepared ?? undefined);
   }
   return created;
 }
