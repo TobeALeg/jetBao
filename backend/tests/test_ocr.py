@@ -122,3 +122,22 @@ def test_normalize_invoice_item_extracts_common_fields():
     assert normalized["invoice_number"] == "E123"
     assert normalized["date"] == "2026-05-18"
     assert normalized["amount"] == 45.5
+    assert "E123" in normalized["summary"]
+
+
+def test_normalize_invoice_item_reads_alternate_invoice_number_fields():
+    item = {
+        "TypeDescription": "电子发票",
+        "SingleInvoiceInfos": {
+            "ElectronicTrainTicketFull": {
+                "Title": "电子发票（铁路电子客票）",
+                "ElectronicInvoiceRailwayETicketNumber": "24441234567890",
+                "Date": "2026-05-18",
+                "Total": "128.00",
+            }
+        },
+    }
+
+    normalized = normalize_invoice_item(item)
+
+    assert normalized["invoice_number"] == "24441234567890"

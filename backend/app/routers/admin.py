@@ -9,7 +9,8 @@ from openpyxl import Workbook
 
 from app.company_entities import is_allowed_company_entity, normalize_company_entity
 from app.dependencies import require_admin
-from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExpenseRejectRequest, ExpenseResponse, ExportPreview, LedgerRow
+from app.expense_month_filter import apply_expense_month_filter, expense_period_label, normalize_month, normalize_month_part, normalize_year
+from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExpenseRejectRequest, ExpenseResponse, ExpenseReviewDetailResponse, ExportPreview, LedgerRow
 from app.security import hash_password
 from app.services.export_package import build_export_package
 
@@ -32,12 +33,18 @@ def _ledger_query(
     is_substitute: bool | None,
     has_duplicate: bool | None,
     record_status: str | None,
+    year: str | None = None,
+    month_part: str | None = None,
 ) -> tuple[str, list[object]]:
     where = []
     params: list[object] = []
-    if month:
-        where.append("expenses.expense_month = ?")
-        params.append(month)
+    apply_expense_month_filter(
+        where,
+        params,
+        month=normalize_month(month),
+        year=normalize_year(year),
+        month_part=normalize_month_part(month_part),
+    )
     if company_entity:
         where.append("expenses.company_entity = ?")
         params.append(company_entity)
@@ -156,6 +163,8 @@ def _serialize_ledger_row(row, connection=None) -> LedgerRow:
 def ledger(
     request: Request,
     month: str | None = None,
+    year: str | None = None,
+    month_part: str | None = None,
     company_entity: str | None = None,
     employee: str | None = None,
     category: str | None = None,
@@ -164,7 +173,17 @@ def ledger(
     record_status: str | None = Query(default=None, alias="status"),
     admin=Depends(require_admin),
 ) -> list[LedgerRow]:
-    query, params = _ledger_query(month, company_entity, employee, category, is_substitute, has_duplicate, record_status)
+    query, params = _ledger_query(
+        month,
+        company_entity,
+        employee,
+        category,
+        is_substitute,
+        has_duplicate,
+        record_status,
+        year=year,
+        month_part=month_part,
+    )
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
     return [_serialize_ledger_row(row, connection) for row in rows]
@@ -174,11 +193,13 @@ def ledger(
 def export_preview(
     request: Request,
     month: str | None = None,
+    year: str | None = None,
+    month_part: str | None = None,
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> ExportPreview:
-    query, params = _ledger_query(month, company_entity, None, None, None, None, "matched")
-    pending_query, pending_params = _ledger_query(month, company_entity, None, None, None, None, "pending")
+    query, params = _ledger_query(month, company_entity, None, None, None, None, "matched", year=year, month_part=month_part)
+    pending_query, pending_params = _ledger_query(month, company_entity, None, None, None, None, "pending", year=year, month_part=month_part)
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
         pending_rows = connection.execute(pending_query, pending_params).fetchall()
@@ -196,10 +217,12 @@ def export_preview(
 def export_excel(
     request: Request,
     month: str | None = None,
+    year: str | None = None,
+    month_part: str | None = None,
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> StreamingResponse:
-    query, params = _ledger_query(month, company_entity, None, None, None, None, "matched")
+    query, params = _ledger_query(month, company_entity, None, None, None, None, "matched", year=year, month_part=month_part)
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
 
@@ -248,7 +271,7 @@ def export_excel(
     output = BytesIO()
     workbook.save(output)
     output.seek(0)
-    filename = f"expense-ledger-{month or 'all'}.xlsx"
+    filename = f"expense-ledger-{expense_period_label(month, year, month_part)}.xlsx"
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -260,11 +283,13 @@ def export_excel(
 def export_package(
     request: Request,
     month: str | None = None,
+    year: str | None = None,
+    month_part: str | None = None,
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> StreamingResponse:
     with request.app.state.db.connect() as connection:
-        output, filename = build_export_package(connection, month, company_entity)
+        output, filename = build_export_package(connection, month, company_entity, year=year, month_part=month_part)
     encoded_filename = quote(filename)
     return StreamingResponse(
         output,
@@ -367,6 +392,35 @@ def deactivate_user(user_id: int, request: Request, admin=Depends(require_admin)
         connection.execute("UPDATE users SET is_active = 0 WHERE id = ?", (user_id,))
         updated = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     return _serialize_user(updated)
+
+
+@router.get("/expenses/{expense_id}", response_model=ExpenseReviewDetailResponse)
+def get_expense_for_review(
+    expense_id: int,
+    request: Request,
+    admin=Depends(require_admin),
+) -> ExpenseReviewDetailResponse:
+    from app.routers.expenses import (
+        _allocation_rows_for_expense,
+        _attachment_rows_for_expense,
+        serialize_expense,
+    )
+
+    with request.app.state.db.connect() as connection:
+        expense = connection.execute(
+            """
+            SELECT expenses.*, users.employee_name, users.company_entity
+            FROM expenses
+            JOIN users ON users.id = expenses.user_id
+            WHERE expenses.id = ?
+            """,
+            (expense_id,),
+        ).fetchone()
+        if expense is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+        attachments = _attachment_rows_for_expense(connection, expense_id)
+        allocations = _allocation_rows_for_expense(connection, expense_id)
+        return serialize_expense(expense, attachments, allocations, connection)
 
 
 @router.post("/expenses/{expense_id}/reject", response_model=ExpenseResponse)

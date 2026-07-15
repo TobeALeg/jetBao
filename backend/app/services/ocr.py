@@ -201,7 +201,7 @@ def normalize_invoice_item(item: dict[str, Any]) -> dict[str, Any]:
     amount = _amount_from_invoice_detail(detail)
     title = _first_text(detail, ("Title", "FormName", "Kind"))
     code = _first_text(detail, ("Code", "InvoiceCode", "CheckCode"))
-    number = _first_text(detail, ("Number", "InvoiceNumber", "ReceiptNumber", "SerialNumber"))
+    number = _invoice_number_from_detail(detail)
     date = _first_text(detail, ("Date", "DateGetOn", "DateStart"))
     seller = _first_text(detail, ("Seller", "SellerName", "CompanyName", "Place", "AgentCode"))
     buyer = _first_text(detail, ("Buyer", "BuyerName", "PurchaserName", "Payer", "UserName", "Name"))
@@ -221,7 +221,7 @@ def normalize_invoice_item(item: dict[str, Any]) -> dict[str, Any]:
         "seller": seller,
         "buyer": buyer,
         "amount": amount,
-        "summary": _invoice_summary(item, detail, amount),
+        "summary": _invoice_summary(item, detail, amount, number),
         "raw": detail,
     }
 
@@ -243,6 +243,23 @@ def _first_text(data: dict[str, Any], keys: tuple[str, ...]) -> str:
     return ""
 
 
+def _invoice_number_from_detail(detail: dict[str, Any]) -> str:
+    return _first_text(
+        detail,
+        (
+            "Number",
+            "InvoiceNumber",
+            "ReceiptNumber",
+            "SerialNumber",
+            "ElectronicNumber",
+            "MachineNumber",
+            "NumberConfirm",
+            "ElectronicInvoiceAirTransportReceiptNumber",
+            "ElectronicInvoiceRailwayETicketNumber",
+        ),
+    )
+
+
 def _amount_from_invoice_detail(data: dict[str, Any]) -> float | None:
     for key in ("Total", "TotalAmount", "Amount", "Fare", "Price", "SubTotal", "PretaxAmount"):
         value = data.get(key)
@@ -252,10 +269,16 @@ def _amount_from_invoice_detail(data: dict[str, Any]) -> float | None:
     return extract_invoice_amount([str(value) for value in data.values() if isinstance(value, (str, int, float))])
 
 
-def _invoice_summary(item: dict[str, Any], detail: dict[str, Any], amount: float | None) -> str:
+def _invoice_summary(
+    item: dict[str, Any],
+    detail: dict[str, Any],
+    amount: float | None,
+    invoice_number: str = "",
+) -> str:
     parts = [
         str(item.get("SubTypeDescription") or item.get("TypeDescription") or ""),
         _first_text(detail, ("Title", "Kind")),
+        invoice_number or _invoice_number_from_detail(detail),
         _first_text(detail, ("Date", "DateGetOn", "DateStart")),
         str(amount) if amount is not None else "",
     ]

@@ -1,26 +1,31 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import AppShell from "./components/AppShell.vue";
+import GuideWelcomeModal from "./components/GuideWelcomeModal.vue";
 import LoginView from "./views/LoginView.vue";
 import MonthlyView from "./views/MonthlyView.vue";
 import HistoryView from "./views/HistoryView.vue";
+import SettingsView from "./views/SettingsView.vue";
+import GuideView from "./views/GuideView.vue";
 import AdminUsersView from "./views/AdminUsersView.vue";
-import { clearToken, getMe, getToken, listExpenses } from "./services/api";
-import type { Expense, User, ViewKey, WorkspaceMode } from "./types";
+import { clearToken, getMe, getToken, listExpenses, markGuideSeen } from "./services/api";
+import type { Expense, User, ViewKey } from "./types";
+
+const ADMIN_ONLY_VIEWS: ViewKey[] = ["history", "admin-users"];
 
 const user = ref<User | null>(null);
 const currentView = ref<ViewKey>("monthly");
 const loadingSession = ref(true);
 const refreshKey = ref(0);
 const allExpenses = ref<Expense[]>([]);
+const showGuideWelcome = ref(false);
 
 const draftCount = computed(() => allExpenses.value.filter((e) => e.status === "pending").length);
 const pendingOcrCount = computed(() =>
-  allExpenses.value.reduce((sum, e) => sum + e.attachments.filter((f) => f.ocr_status !== "success").length, 0)
-);
-const adminViews = new Set<ViewKey>(["history", "admin-users"]);
-const workspaceMode = computed<WorkspaceMode>(() =>
-  user.value?.role === "admin" && adminViews.has(currentView.value) ? "admin" : "personal"
+  allExpenses.value.reduce(
+    (sum, e) => sum + e.attachments.filter((f) => f.ocr_status !== "success" && f.ocr_status !== "skipped").length,
+    0
+  )
 );
 
 async function loadExpenses() {
@@ -32,6 +37,31 @@ async function loadExpenses() {
   }
 }
 
+function maybeShowGuideWelcome() {
+  showGuideWelcome.value = Boolean(user.value && !user.value.guide_seen);
+}
+
+async function dismissGuideWelcome(openFullGuide = false) {
+  if (!user.value || user.value.guide_seen) {
+    showGuideWelcome.value = false;
+    if (openFullGuide) currentView.value = "guide";
+    return;
+  }
+  try {
+    user.value = await markGuideSeen();
+  } catch {
+    user.value = { ...user.value, guide_seen: true };
+  }
+  showGuideWelcome.value = false;
+  if (openFullGuide) currentView.value = "guide";
+}
+
+function ensureAllowedView() {
+  if (user.value?.role !== "admin" && ADMIN_ONLY_VIEWS.includes(currentView.value)) {
+    currentView.value = "monthly";
+  }
+}
+
 async function restoreSession() {
   if (!getToken()) {
     loadingSession.value = false;
@@ -39,7 +69,9 @@ async function restoreSession() {
   }
   try {
     user.value = await getMe();
+    ensureAllowedView();
     await loadExpenses();
+    maybeShowGuideWelcome();
   } catch {
     clearToken();
   } finally {
@@ -50,7 +82,9 @@ async function restoreSession() {
 function handleLogin(nextUser: User) {
   user.value = nextUser;
   currentView.value = "monthly";
+  ensureAllowedView();
   loadExpenses();
+  maybeShowGuideWelcome();
 }
 
 function handleLogout() {
@@ -58,23 +92,22 @@ function handleLogout() {
   user.value = null;
   currentView.value = "monthly";
   allExpenses.value = [];
+  showGuideWelcome.value = false;
 }
 
 function handleChangeView(view: ViewKey) {
-  if (adminViews.has(view) && user.value?.role !== "admin") return;
+  if (ADMIN_ONLY_VIEWS.includes(view) && user.value?.role !== "admin") return;
   currentView.value = view;
-}
-
-function handleChangeWorkspaceMode(mode: WorkspaceMode) {
-  if (mode === "admin" && user.value?.role !== "admin") return;
-  currentView.value = mode === "admin" ? "history" : "monthly";
 }
 
 onMounted(restoreSession);
 watch(refreshKey, loadExpenses);
-watch(() => currentView.value, (v) => {
-  if (v === "monthly") refreshKey.value += 1;
-});
+watch(
+  () => currentView.value,
+  (view) => {
+    if (view === "monthly" || view === "history") refreshKey.value += 1;
+  }
+);
 </script>
 
 <template>
@@ -88,13 +121,17 @@ watch(() => currentView.value, (v) => {
     v-else
     :user="user"
     :current-view="currentView"
-    :workspace-mode="workspaceMode"
     :draft-count="draftCount"
     :pending-ocr-count="pendingOcrCount"
     @change-view="handleChangeView"
-    @change-workspace-mode="handleChangeWorkspaceMode"
     @logout="handleLogout"
   >
+    <GuideWelcomeModal
+      :open="showGuideWelcome"
+      :user="user"
+      @dismiss="dismissGuideWelcome(false)"
+      @view-full-guide="dismissGuideWelcome(true)"
+    />
     <MonthlyView
       v-show="currentView === 'monthly'"
       :user="user"
@@ -102,10 +139,14 @@ watch(() => currentView.value, (v) => {
       @refreshed="loadExpenses()"
     />
     <HistoryView
+      v-if="user.role === 'admin'"
       v-show="currentView === 'history'"
       :user="user"
       :refresh-key="refreshKey"
+      @expenses-changed="refreshKey += 1"
     />
-    <AdminUsersView v-if="currentView === 'admin-users' && user.role === 'admin'" />
+    <SettingsView v-show="currentView === 'settings'" :user="user" />
+    <GuideView v-show="currentView === 'guide'" :user="user" />
+    <AdminUsersView v-show="currentView === 'admin-users'" v-if="user.role === 'admin'" />
   </AppShell>
 </template>

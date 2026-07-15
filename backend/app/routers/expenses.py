@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 
 from app.company_entities import invoice_buyer_match_status, normalize_company_title
 from app.dependencies import get_current_user
@@ -20,6 +20,7 @@ from app.schemas import (
     ExpenseResponse,
     ExpenseSubmitRequest,
     InvoicePoolItem,
+    PendingExpenseSubmitRequest,
 )
 
 
@@ -130,6 +131,9 @@ def serialize_expense(expense, attachments, allocations: list[sqlite3.Row] | Non
                         if src.attachment_id not in seen:
                             seen[src.attachment_id] = {"attachment_id": src.attachment_id, "filename": src.filename, "employee_name": src.employee_name}
         duplicate_of = list(seen.values())
+    invoice_attachment_rows: list = []
+    if connection is not None:
+        invoice_attachment_rows = _invoice_attachment_rows_for_expense(connection, expense["id"])
     return ExpenseResponse(
         id=expense["id"],
         employee_name=expense["employee_name"],
@@ -157,6 +161,7 @@ def serialize_expense(expense, attachments, allocations: list[sqlite3.Row] | Non
         created_at=expense["created_at"],
         attachments=[serialize_attachment(row) for row in attachments],
         allocations=[serialize_allocation(row) for row in allocation_rows],
+        invoice_attachments=[serialize_attachment(row) for row in invoice_attachment_rows],
     )
 
 
@@ -205,6 +210,20 @@ def _attachment_rows_for_expense(connection: sqlite3.Connection, expense_id: int
         ORDER BY created_at DESC
         """,
         (expense_id, expense_id),
+    ).fetchall()
+
+
+def _invoice_attachment_rows_for_expense(connection: sqlite3.Connection, expense_id: int) -> list[sqlite3.Row]:
+    return connection.execute(
+        """
+        SELECT attachments.*
+        FROM attachments
+        JOIN expense_invoice_allocations ON expense_invoice_allocations.attachment_id = attachments.id
+        WHERE expense_invoice_allocations.expense_id = ?
+        GROUP BY attachments.id
+        ORDER BY attachments.created_at DESC
+        """,
+        (expense_id,),
     ).fetchall()
 
 
@@ -313,24 +332,35 @@ def _validate_invoice_item(item: dict[str, Any], user_company_entity: str, buyer
 
 
 def _sync_expense_after_allocation(connection: sqlite3.Connection, expense_id: int) -> None:
-    """匹配发票后只更新金额和替票标记，不改变状态（提交是独立操作）"""
+    """匹配发票后只更新票面合计，不改变状态（提交是独立操作）"""
     expense = connection.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,)).fetchone()
     if expense is None:
         return
     allocated_amount = _allocated_amount_for_expense(connection, expense_id)
-    actual_amount = round(float(expense["actual_amount"]), 2)
-    is_overage = allocated_amount > actual_amount
+    if allocated_amount <= 0:
+        connection.execute(
+            """
+            UPDATE expenses
+            SET
+                invoice_amount = NULL,
+                invoice_buyer = '',
+                invoice_number = '',
+                invoice_date = '',
+                invoice_type = '',
+                is_substitute = 0
+            WHERE id = ?
+            """,
+            (expense_id,),
+        )
+        return
     connection.execute(
         """
         UPDATE expenses
-        SET
-            invoice_amount = ?,
-            is_substitute = CASE WHEN ? THEN 1 ELSE 0 END
+        SET invoice_amount = ?
         WHERE id = ?
         """,
         (
             allocated_amount if allocated_amount else None,
-            int(is_overage),
             expense_id,
         ),
     )
@@ -352,8 +382,16 @@ def _create_allocation(
     existing_expense_allocated = _allocated_amount_for_expense(connection, expense["id"])
     expense_total = round(float(expense["actual_amount"]), 2)
     next_expense_allocated = round(existing_expense_allocated + invoice_amount, 2)
-    if next_expense_allocated > expense_total and not note.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="票面合计与花费金额不一致时必须填写说明")
+    invoice_total = round(invoice_amount, 2)
+    is_substitute = bool(expense["is_substitute"])
+
+    if not is_substitute:
+        if invoice_total != expense_total:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="发票金额与报销金额不一致，请调整金额或选择替票")
+    elif invoice_total != expense_total and not note.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="替票报销必须填写替票说明")
+    elif next_expense_allocated > expense_total and not note.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="替票报销必须填写替票说明")
 
     try:
         connection.execute(
@@ -590,6 +628,63 @@ def delete_expense_attachment(
 
         deleted_path = attachment["stored_path"]
         connection.execute("DELETE FROM attachments WHERE id = ? AND user_id = ?", (attachment_id, user["id"]))
+        updated, linked_attachments, allocations = _load_expense(connection, expense_id)
+
+    _delete_file(deleted_path)
+    return serialize_expense(updated, linked_attachments, allocations, connection)
+
+
+@router.delete("/expenses/{expense_id}/invoice-attachments/{attachment_id}", response_model=ExpenseResponse)
+def delete_expense_invoice_attachment(
+    expense_id: int,
+    attachment_id: int,
+    request: Request,
+    user=Depends(get_current_user),
+) -> ExpenseResponse:
+    deleted_path = ""
+    with request.app.state.db.connect() as connection:
+        expense = connection.execute(
+            "SELECT * FROM expenses WHERE id = ? AND user_id = ?",
+            (expense_id, user["id"]),
+        ).fetchone()
+        if expense is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+        if expense["status"] == "reviewed":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已完成审核的记录不能删除发票")
+        _ensure_expense_is_pending(expense)
+
+        allocation = connection.execute(
+            """
+            SELECT id
+            FROM expense_invoice_allocations
+            WHERE expense_id = ? AND attachment_id = ?
+            LIMIT 1
+            """,
+            (expense_id, attachment_id),
+        ).fetchone()
+        if allocation is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="发票关联不存在")
+
+        attachment = connection.execute(
+            "SELECT * FROM attachments WHERE id = ? AND user_id = ?",
+            (attachment_id, user["id"]),
+        ).fetchone()
+        if attachment is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="发票附件不存在")
+
+        connection.execute(
+            "DELETE FROM expense_invoice_allocations WHERE expense_id = ? AND attachment_id = ?",
+            (expense_id, attachment_id),
+        )
+        remaining = connection.execute(
+            "SELECT id FROM expense_invoice_allocations WHERE attachment_id = ? LIMIT 1",
+            (attachment_id,),
+        ).fetchone()
+        if remaining is None:
+            deleted_path = attachment["stored_path"]
+            connection.execute("DELETE FROM attachments WHERE id = ? AND user_id = ?", (attachment_id, user["id"]))
+
+        _sync_expense_after_allocation(connection, expense_id)
         updated, linked_attachments, allocations = _load_expense(connection, expense_id)
 
     _delete_file(deleted_path)
@@ -847,8 +942,10 @@ def submit_expense(
     expense_id: int,
     request: Request,
     user=Depends(get_current_user),
+    payload: PendingExpenseSubmitRequest = Body(default_factory=PendingExpenseSubmitRequest),
 ) -> ExpenseResponse:
     """提交待处理花费：pending → matched"""
+    options = payload
     with request.app.state.db.connect() as connection:
         expense = connection.execute(
             "SELECT * FROM expenses WHERE id = ? AND user_id = ?",
@@ -856,6 +953,30 @@ def submit_expense(
         ).fetchone()
         if expense is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+        if expense["status"] != "pending":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有待处理记录才能提交")
+
+        is_substitute = bool(expense["is_substitute"]) if options.is_substitute is None else bool(options.is_substitute)
+        substitute_reason = (
+            str(expense["substitute_reason"] or "")
+            if options.substitute_reason is None
+            else options.substitute_reason.strip()
+        )
+        invoice_amount = round(float(expense["invoice_amount"] or 0), 2)
+        actual_amount = round(float(expense["actual_amount"]), 2)
+        if options.is_substitute is not None or options.substitute_reason is not None:
+            _validate_amount_reason(is_substitute, actual_amount, invoice_amount, substitute_reason)
+            connection.execute(
+                """
+                UPDATE expenses
+                SET is_substitute = ?, substitute_reason = ?
+                WHERE id = ?
+                """,
+                (int(is_substitute), substitute_reason, expense_id),
+            )
+        elif is_substitute or round(actual_amount, 2) != round(invoice_amount, 2):
+            _validate_amount_reason(is_substitute, actual_amount, invoice_amount, substitute_reason)
+
         _submit_expense(connection, expense_id)
         expense, linked_attachments, allocations = _load_expense(connection, expense_id)
     return serialize_expense(expense, linked_attachments, allocations, connection)
