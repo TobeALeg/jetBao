@@ -279,7 +279,7 @@ def test_employee_can_create_draft_and_only_see_own_records(tmp_path, monkeypatc
     )
     assert create.status_code == 200
     assert create.json()["company_entity"] == "上海山途远智信息科技有限公司"
-    assert create.json()["status"] == "draft"
+    assert create.json()["status"] == "pending"
 
     dandi_records = client.get("/api/expenses", headers=dandi)
     ouyang_records = client.get("/api/expenses", headers=ouyang)
@@ -287,7 +287,7 @@ def test_employee_can_create_draft_and_only_see_own_records(tmp_path, monkeypatc
     assert ouyang_records.json() == []
 
 
-def test_direct_expense_submission_endpoint_is_not_available(tmp_path, monkeypatch):
+def test_expense_endpoint_creates_pending_record(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     dandi = auth_headers(client, "Dandi", "dandi123")
 
@@ -295,17 +295,16 @@ def test_direct_expense_submission_endpoint_is_not_available(tmp_path, monkeypat
         "/api/expenses",
         headers=dandi,
         json={
+            "project_name": "AI 工具订阅",
             "category": "AI 项目",
             "expense_month": "2026-05",
             "actual_amount": 100,
-            "invoice_amount": 120,
-            "is_substitute": True,
+            "is_substitute": False,
             "substitute_reason": "",
-            "note": "",
-            "attachment_ids": [],
         },
     )
-    assert response.status_code == 405
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
 
 
 def test_duplicate_upload_is_marked_but_not_blocked(tmp_path, monkeypatch):
@@ -326,7 +325,9 @@ def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
     admin = auth_headers(client, "admin", "admin123")
 
     create = create_invoice_backed_expense(client, dandi, user_id=2, amount=300)
-    assert create["status"] == "submitted"
+    submitted = client.post(f"/api/expenses/{create['id']}/submit", headers=dandi)
+    assert submitted.status_code == 200
+    assert submitted.json()["status"] == "matched"
 
     draft = client.post(
         "/api/expenses/drafts",
@@ -340,13 +341,13 @@ def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
     )
     assert draft.status_code == 200
 
-    ledger = client.get("/api/admin/ledger?month=2026-05&employee=艾丹迪&status=submitted", headers=admin)
+    ledger = client.get("/api/admin/ledger?month=2026-05&employee=艾丹迪&status=matched", headers=admin)
     assert ledger.status_code == 200
     assert len(ledger.json()) == 1
     assert ledger.json()[0]["employee_name"] == "艾丹迪"
-    assert ledger.json()[0]["status"] == "submitted"
+    assert ledger.json()[0]["status"] == "matched"
 
-    draft_ledger = client.get("/api/admin/ledger?month=2026-05&status=draft", headers=admin)
+    draft_ledger = client.get("/api/admin/ledger?month=2026-05&status=pending", headers=admin)
     assert draft_ledger.status_code == 200
     assert len(draft_ledger.json()) == 1
     assert draft_ledger.json()[0]["project_name"] == "客户拜访打车"
@@ -357,7 +358,7 @@ def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
         "employee_count": 1,
         "record_count": 1,
         "total_amount": 300.0,
-        "pending_draft_count": 1,
+        "pending_count": 1,
     }
 
     export = client.get("/api/admin/export.xlsx?month=2026-05", headers=admin)
@@ -608,26 +609,26 @@ def test_employee_can_create_draft_and_complete_it_with_invoice_item(tmp_path, m
     )
     assert draft.status_code == 200
     body = draft.json()
-    assert body["status"] == "draft"
+    assert body["status"] == "pending"
     assert body["project_name"] == "客户拜访打车"
 
-    complete = client.post(
-        f"/api/expenses/drafts/{body['id']}/complete",
+    match = client.post(
+        "/api/expense-allocations",
         headers=dandi,
         json={
+            "expense_id": body["id"],
             "attachment_id": attachment_id,
             "invoice_item_index": 0,
-            "category": "差旅交通",
-            "expense_month": "2026-05",
-            "actual_amount": 120,
-            "is_substitute": False,
-            "substitute_reason": "",
             "note": "拜访 A 客户",
         },
     )
-    assert complete.status_code == 200
-    completed = complete.json()
-    assert completed["status"] == "submitted"
+    assert match.status_code == 200
+    matched = match.json()
+    assert matched["status"] == "pending"
+    submit = client.post(f"/api/expenses/{body['id']}/submit", headers=dandi)
+    assert submit.status_code == 200
+    completed = submit.json()
+    assert completed["status"] == "matched"
     assert completed["project_name"] == "客户拜访打车"
     assert completed["invoice_amount"] == 120
     assert completed["invoice_number"] == "DRAFT-1"
@@ -693,7 +694,7 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
     )
     assert match.status_code == 200
     matched = match.json()
-    assert matched["status"] == "submitted"
+    assert matched["status"] == "pending"
     assert matched["invoice_amount"] == 420
     assert len(matched["allocations"]) == 2
 
@@ -784,7 +785,7 @@ def test_cross_entity_invoice_buyer_requires_confirmation(tmp_path, monkeypatch)
         },
     )
     assert accepted.status_code == 200
-    assert accepted.json()["status"] == "submitted"
+    assert accepted.json()["status"] == "pending"
     assert accepted.json()["invoice_buyer"] == "山途远智（上海）企业服务有限公司"
 
 
@@ -842,10 +843,10 @@ def test_partial_invoice_buyer_match_requires_manual_confirmation(tmp_path, monk
         },
     )
     assert with_confirmation.status_code == 200
-    assert with_confirmation.json()["status"] == "submitted"
+    assert with_confirmation.json()["status"] == "pending"
 
 
-def test_submitted_expense_cannot_be_changed_by_employee(tmp_path, monkeypatch):
+def test_submitted_expense_locks_invoices_but_allows_evidence(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     dandi = auth_headers(client, "Dandi", "dandi123")
     submitted = create_invoice_backed_expense(
@@ -857,6 +858,9 @@ def test_submitted_expense_cannot_be_changed_by_employee(tmp_path, monkeypatch):
         category="差旅交通",
         invoice_number="LOCKED-1",
     )
+    submit = client.post(f"/api/expenses/{submitted['id']}/submit", headers=dandi)
+    assert submit.status_code == 200
+    submitted = submit.json()
     extra_invoice_id = insert_ocr_attachment(
         client,
         user_id=2,
@@ -891,8 +895,8 @@ def test_submitted_expense_cannot_be_changed_by_employee(tmp_path, monkeypatch):
         headers=dandi,
         json={"attachment_ids": [payment.json()[0]["id"]]},
     )
-    assert append_attachment.status_code == 400
-    assert "已提交" in append_attachment.json()["detail"]
+    assert append_attachment.status_code == 200
+    assert {item["id"] for item in append_attachment.json()["attachments"]} == {payment.json()[0]["id"]}
 
 
 def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, monkeypatch):
@@ -940,7 +944,7 @@ def test_expense_keeps_transaction_attachments_out_of_invoice_pool(tmp_path, mon
     )
     assert link.status_code == 200
     linked = link.json()
-    assert linked["status"] == "draft"
+    assert linked["status"] == "pending"
     assert {item["id"] for item in linked["attachments"]} == {image_id, invoice_like_attachment_id}
 
     pool = client.get("/api/invoice-pool", headers=dandi)
@@ -1101,7 +1105,7 @@ def test_deleting_draft_expense_releases_matched_invoice(tmp_path, monkeypatch):
         },
     )
     assert match.status_code == 200
-    assert match.json()["status"] == "draft"
+    assert match.json()["status"] == "pending"
 
     used_pool = client.get("/api/invoice-pool", headers=dandi)
     used_item = next(item for item in used_pool.json() if item["attachment_id"] == attachment_id)
@@ -1170,12 +1174,12 @@ def test_invoice_match_requires_reason_when_invoice_total_exceeds_expense(tmp_pa
     )
     assert with_reason.status_code == 200
     body = with_reason.json()
-    assert body["status"] == "submitted"
+    assert body["status"] == "pending"
     assert body["is_substitute"] is True
     assert body["substitute_reason"] == "用同项目大额发票替票"
 
 
-def test_draft_completion_requires_reason_when_amount_mismatches_invoice(tmp_path, monkeypatch):
+def test_invoice_allocation_requires_reason_when_amount_exceeds_expense(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     dandi = auth_headers(client, "Dandi", "dandi123")
     attachment_id = insert_ocr_attachment(
@@ -1198,16 +1202,12 @@ def test_draft_completion_requires_reason_when_amount_mismatches_invoice(tmp_pat
     assert draft.status_code == 200
 
     response = client.post(
-        f"/api/expenses/drafts/{draft.json()['id']}/complete",
+        "/api/expense-allocations",
         headers=dandi,
         json={
+            "expense_id": draft.json()["id"],
             "attachment_id": attachment_id,
             "invoice_item_index": 0,
-            "category": "市场活动",
-            "expense_month": "2026-05",
-            "actual_amount": 100,
-            "is_substitute": False,
-            "substitute_reason": "",
             "note": "",
         },
     )
@@ -1221,7 +1221,7 @@ def test_single_invoice_upload_rejects_when_ocr_not_configured(tmp_path, monkeyp
 
     response = upload_file(client, dandi, "invoice.pdf", b"fake-invoice", "application/pdf")
     assert response.status_code == 400
-    assert response.json()["detail"] == "此图片不是发票"
+    assert response.json()["detail"] == "腾讯云 OCR 未配置，无法识别发票"
 
 
 def test_batch_upload_accepts_multiple_files(tmp_path, monkeypatch):
@@ -1318,7 +1318,7 @@ def test_staged_invoice_can_bind_directly_without_entering_pool(tmp_path, monkey
         },
     )
     assert match.status_code == 200
-    assert match.json()["status"] == "submitted"
+    assert match.json()["status"] == "pending"
 
     pool = client.get("/api/invoice-pool", headers=dandi)
     assert all(item["attachment_id"] != attachment_id for item in pool.json())
@@ -1514,5 +1514,18 @@ def test_admin_can_preview_expense_attachments_for_review(tmp_path, monkeypatch)
     invoice_content = client.get(f"/api/attachments/{invoice_id}/content", headers=admin)
     assert invoice_content.status_code == 200
 
-    forbidden = client.get(f"/api/admin/expenses/{expense_id}", headers=dandi)
+    created_employee = client.post(
+        "/api/admin/users",
+        headers=admin,
+        json={
+            "username": "employee-review",
+            "password": "employee-pass",
+            "role": "employee",
+            "employee_name": "普通员工",
+            "company_entity": "上海山途远智信息科技有限公司",
+        },
+    )
+    assert created_employee.status_code == 200
+    employee = auth_headers(client, "employee-review", "employee-pass")
+    forbidden = client.get(f"/api/admin/expenses/{expense_id}", headers=employee)
     assert forbidden.status_code == 403

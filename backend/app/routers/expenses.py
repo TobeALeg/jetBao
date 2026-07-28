@@ -332,11 +332,12 @@ def _validate_invoice_item(item: dict[str, Any], user_company_entity: str, buyer
 
 
 def _sync_expense_after_allocation(connection: sqlite3.Connection, expense_id: int) -> None:
-    """匹配发票后只更新票面合计，不改变状态（提交是独立操作）"""
+    """匹配发票后更新票面合计和替票标记，不改变状态（提交是独立操作）"""
     expense = connection.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,)).fetchone()
     if expense is None:
         return
     allocated_amount = _allocated_amount_for_expense(connection, expense_id)
+    actual_amount = round(float(expense["actual_amount"]), 2)
     if allocated_amount <= 0:
         connection.execute(
             """
@@ -356,11 +357,14 @@ def _sync_expense_after_allocation(connection: sqlite3.Connection, expense_id: i
     connection.execute(
         """
         UPDATE expenses
-        SET invoice_amount = ?
+        SET
+            invoice_amount = ?,
+            is_substitute = CASE WHEN ? THEN 1 ELSE 0 END
         WHERE id = ?
         """,
         (
             allocated_amount if allocated_amount else None,
+            int(round(allocated_amount, 2) != actual_amount),
             expense_id,
         ),
     )
@@ -382,16 +386,8 @@ def _create_allocation(
     existing_expense_allocated = _allocated_amount_for_expense(connection, expense["id"])
     expense_total = round(float(expense["actual_amount"]), 2)
     next_expense_allocated = round(existing_expense_allocated + invoice_amount, 2)
-    invoice_total = round(invoice_amount, 2)
-    is_substitute = bool(expense["is_substitute"])
-
-    if not is_substitute:
-        if invoice_total != expense_total:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="发票金额与报销金额不一致，请调整金额或选择替票")
-    elif invoice_total != expense_total and not note.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="替票报销必须填写替票说明")
-    elif next_expense_allocated > expense_total and not note.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="替票报销必须填写替票说明")
+    if next_expense_allocated > expense_total and not note.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="票面合计与花费金额不一致时必须填写说明")
 
     try:
         connection.execute(
