@@ -1,0 +1,51 @@
+name: jetbao
+
+services:
+  backend:
+    image: ${IMAGE_PREFIX:?IMAGE_PREFIX is required}-backend:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      DATA_DIR: /data
+      UPLOAD_DIR: /data/uploads
+      TENCENT_SECRET_ID: ${TENCENT_SECRET_ID:-}
+      TENCENT_SECRET_KEY: ${TENCENT_SECRET_KEY:-}
+      TENCENT_OCR_REGION: ${TENCENT_OCR_REGION:-ap-guangzhou}
+      TENCENT_OCR_ENDPOINT: ${TENCENT_OCR_ENDPOINT:-ocr.tencentcloudapi.com}
+      TENCENT_OCR_ACTION: ${TENCENT_OCR_ACTION:-RecognizeGeneralInvoice}
+      TENCENT_OCR_PDF_PAGE: ${TENCENT_OCR_PDF_PAGE:-1}
+      TENCENT_OCR_ENABLE_MULTIPLE_PAGE: ${TENCENT_OCR_ENABLE_MULTIPLE_PAGE:-true}
+      SEED_DEMO_USERS: "false"
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_EMPLOYEE_NAME: ${BOOTSTRAP_ADMIN_EMPLOYEE_NAME:-}
+      BOOTSTRAP_ADMIN_COMPANY_ENTITY: ${BOOTSTRAP_ADMIN_COMPANY_ENTITY:-}
+    volumes:
+      - ${JETBAO_DATA_DIR:-/opt/jetbao/data}:/data
+    ports:
+      - "127.0.0.1:18000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  frontend:
+    image: ${IMAGE_PREFIX:?IMAGE_PREFIX is required}-frontend:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:18080:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
