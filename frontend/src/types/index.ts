@@ -79,7 +79,7 @@ export interface Expense {
   created_at: string;
   attachments: Attachment[];
   allocations: ExpenseAllocation[];
-  invoice_attachments?: Attachment[];
+  invoice_attachments: Attachment[];
 }
 
 export interface ExpenseReviewDetail extends Expense {}
