@@ -57,7 +57,36 @@ def _delete_file(path_value: str) -> None:
         pass
 
 
-def _save_and_recognize_attachment(request: Request, file: UploadFile, user) -> AttachmentResponse:
+NOT_INVOICE_MESSAGE = "此图片不是发票"
+
+
+def _invoice_ocr_error(ocr_status: str, ocr_result: dict) -> str | None:
+    if ocr_status == "not_configured":
+        return "腾讯云 OCR 未配置，无法识别发票"
+
+    items = ocr_result.get("invoice_items")
+    has_valid_invoice = (
+        ocr_status == "success"
+        and isinstance(items, list)
+        and items
+        and any(
+            isinstance(item, dict) and isinstance(item.get("amount"), (int, float)) and float(item["amount"]) > 0
+            for item in items
+        )
+    )
+    if not has_valid_invoice:
+        return NOT_INVOICE_MESSAGE
+    return None
+
+
+def _save_and_recognize_attachment(
+    request: Request,
+    file: UploadFile,
+    user,
+    *,
+    require_invoice: bool = False,
+    run_ocr: bool = True,
+) -> AttachmentResponse:
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="缺少文件名")
 
@@ -81,8 +110,17 @@ def _save_and_recognize_attachment(request: Request, file: UploadFile, user) -> 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="附件不能为空")
 
     file_hash = digest.hexdigest()
-    ocr_config = OcrServiceConfig.from_settings(request.app.state.settings)
-    ocr_status, ocr_result = OcrService(ocr_config).recognize(stored_path)
+    if run_ocr:
+        ocr_config = OcrServiceConfig.from_settings(request.app.state.settings)
+        ocr_status, ocr_result = OcrService(ocr_config).recognize(stored_path)
+        if require_invoice:
+            invoice_error = _invoice_ocr_error(ocr_status, ocr_result)
+            if invoice_error:
+                stored_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=invoice_error)
+    else:
+        ocr_status = "skipped"
+        ocr_result = {"message": "佐证材料无需 OCR"}
 
     with request.app.state.db.connect() as connection:
         duplicate_count = connection.execute(
@@ -118,7 +156,7 @@ def upload_attachment(
     file: UploadFile = File(...),
     user=Depends(get_current_user),
 ) -> AttachmentResponse:
-    return _save_and_recognize_attachment(request, file, user)
+    return _save_and_recognize_attachment(request, file, user, require_invoice=True)
 
 
 @router.post("/attachments/batch", response_model=list[AttachmentResponse])
@@ -129,7 +167,7 @@ def upload_attachments(
 ) -> list[AttachmentResponse]:
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少上传一个附件")
-    return [_save_and_recognize_attachment(request, file, user) for file in files]
+    return [_save_and_recognize_attachment(request, file, user, run_ocr=False) for file in files]
 
 
 @router.post("/attachments/pool", response_model=list[AttachmentResponse])
@@ -210,6 +248,27 @@ def get_attachment_content(
             "SELECT * FROM attachments WHERE id = ? AND user_id = ?",
             (attachment_id, user["id"]),
         ).fetchone()
+        if row is None and user["role"] == "admin":
+            row = connection.execute(
+                """
+                SELECT attachments.*
+                FROM attachments
+                WHERE attachments.id = ?
+                  AND (
+                      EXISTS (
+                          SELECT 1
+                          FROM expense_attachments
+                          WHERE expense_attachments.attachment_id = attachments.id
+                      )
+                      OR EXISTS (
+                          SELECT 1
+                          FROM expense_invoice_allocations
+                          WHERE expense_invoice_allocations.attachment_id = attachments.id
+                      )
+                  )
+                """,
+                (attachment_id,),
+            ).fetchone()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="附件不存在")
 

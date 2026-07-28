@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { CheckCircle2, FilePlus2, ImagePlus, Loader2, Plus, X } from "lucide-vue-next";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { CheckCircle2, FilePlus2, ImagePlus, Loader2, Plus } from "lucide-vue-next";
+import AttachmentPreviewModal from "../components/AttachmentPreviewModal.vue";
+import UploadAttachmentTile from "../components/UploadAttachmentTile.vue";
 import { buyerMatchStatus, isDifferentAllowedBuyer } from "../constants/companyEntities";
 import { DEFAULT_EXPENSE_CATEGORY, EXPENSE_CATEGORIES } from "../constants/expenseCategories";
 import {
   createExpenseAllocationsBatch,
   createAndSubmitExpense,
   createExpenseDraft,
+  deleteAttachment,
+  deleteExpense,
+  deleteExpenseAttachment,
+  deleteExpenseInvoiceAttachment,
   linkExpenseAttachments,
   listExpenses,
   submitExpense,
@@ -26,8 +32,8 @@ const emit = defineEmits<{
   refreshed: [];
 }>();
 
-type RecordState = "missing_material" | "ready" | "submitted";
-type TableSection = { key: "active" | "submitted"; records: Expense[] };
+type RecordState = "missing_material" | "ready" | "rejected" | "submitted" | "approved";
+type TableSection = { key: "active" | "submitted" | "approved"; records: Expense[] };
 
 const month = currentReimbursementMonth();
 const expenses = ref<Expense[]>([]);
@@ -38,12 +44,16 @@ const success = ref("");
 const isComposerOpen = ref(true);
 const targetExpenseId = ref<number | null>(null);
 const isNewSubstitute = ref(false);
+const substituteReason = ref("");
 const evidenceAttachments = ref<Attachment[]>([]);
 const stagedInvoice = ref<Attachment | null>(null);
+const substituteReasonInput = ref<HTMLTextAreaElement | null>(null);
 const evidenceInput = ref<HTMLInputElement | null>(null);
 const invoiceInput = ref<HTMLInputElement | null>(null);
 const evidenceDragging = ref(false);
 const invoiceDragging = ref(false);
+const previewAttachment = ref<Attachment | null>(null);
+const removingAttachmentId = ref<number | null>(null);
 
 const expenseForm = ref<{ project_name: string; actual_amount: string; category: string }>({
   project_name: "",
@@ -52,29 +62,112 @@ const expenseForm = ref<{ project_name: string; actual_amount: string; category:
 });
 
 const currentMonthExpenses = computed(() => expenses.value.filter((expense) => expense.expense_month === month));
-const submittedRecords = computed(() => currentMonthExpenses.value.filter((expense) => expense.status !== "pending"));
+const submittedRecords = computed(() => currentMonthExpenses.value.filter((expense) => expense.status === "matched"));
+const approvedRecords = computed(() => currentMonthExpenses.value.filter((expense) => expense.status === "reviewed"));
 const submittedTotal = computed(() => submittedRecords.value.reduce((sum, record) => sum + Number(record.actual_amount), 0));
-const materialMissingCount = computed(() => currentMonthExpenses.value.filter((record) => record.status === "pending" && (!record.allocation_count || !record.attachments.length)).length);
+const approvedTotal = computed(() => approvedRecords.value.reduce((sum, record) => sum + Number(record.actual_amount), 0));
+const materialMissingCount = computed(() => currentMonthExpenses.value.filter((record) => record.status === "pending" && !record.reject_reason && (!record.allocation_count || !record.attachments.length)).length);
+const materialMissingTotal = computed(() => currentMonthExpenses.value
+  .filter((record) => record.status === "pending" && !record.reject_reason && (!record.allocation_count || !record.attachments.length))
+  .reduce((sum, record) => sum + Number(record.actual_amount), 0));
+const rejectedCount = computed(() => currentMonthExpenses.value.filter((record) => record.status === "pending" && Boolean(record.reject_reason)).length);
+function activeRecordPriority(expense: Expense): number {
+  if (expense.reject_reason) return 0;
+  if (recordState(expense) === "ready") return 1;
+  return 2;
+}
 const tableSections = computed<TableSection[]>(() => {
-  const active = currentMonthExpenses.value.filter((record) => record.status === "pending");
-  const submitted = currentMonthExpenses.value.filter((record) => record.status !== "pending");
+  const active = currentMonthExpenses.value
+    .filter((record) => record.status === "pending")
+    .sort((a, b) => activeRecordPriority(a) - activeRecordPriority(b));
+  const submitted = currentMonthExpenses.value.filter((record) => record.status === "matched");
+  const approved = currentMonthExpenses.value.filter((record) => record.status === "reviewed");
   return [
     ...(active.length ? [{ key: "active" as const, records: active }] : []),
     ...(submitted.length ? [{ key: "submitted" as const, records: submitted }] : []),
+    ...(approved.length ? [{ key: "approved" as const, records: approved }] : []),
   ];
 });
 const targetExpense = computed(() => expenses.value.find((expense) => expense.id === targetExpenseId.value) ?? null);
-const isEditingExisting = computed(() => targetExpenseId.value !== null);
+const isEditingPendingExpense = computed(() => Boolean(targetExpenseId.value && targetExpense.value?.status === "pending"));
 const selectedInvoiceItem = computed(() => {
   const items = stagedInvoice.value?.ocr_result.invoice_items;
   if (!Array.isArray(items)) return null;
   return items.find((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).amount === "number") as Record<string, unknown> | null;
 });
 const selectedInvoiceAmount = computed(() => Number(selectedInvoiceItem.value?.amount) || 0);
+const linkedInvoiceAmount = computed(() => {
+  if (stagedInvoice.value) return selectedInvoiceAmount.value;
+  const expense = targetExpense.value;
+  if (!expense?.allocations.length) return 0;
+  return roundMoney(expense.allocations.reduce((sum, item) => sum + Number(item.invoice_amount || 0), 0));
+});
+const formActualAmount = computed(() => Number(expenseForm.value.actual_amount) || 0);
+const amountsMismatch = computed(() => {
+  const invoiceAmount = linkedInvoiceAmount.value || selectedInvoiceAmount.value;
+  const actualAmount = formActualAmount.value || Number(targetExpense.value?.actual_amount || 0);
+  return invoiceAmount > 0 && actualAmount > 0 && roundMoney(invoiceAmount) !== roundMoney(actualAmount);
+});
+const showSubstituteReason = computed(() => isNewSubstitute.value || amountsMismatch.value);
 const canSubmitNew = computed(() => Boolean(stagedInvoice.value && selectedInvoiceItem.value && Number(expenseForm.value.actual_amount) > 0 && selectedInvoiceAmount.value >= Number(expenseForm.value.actual_amount)));
-const canSubmitExisting = computed(() => Boolean(targetExpense.value && targetExpense.value.allocation_count > 0 && targetExpense.value.remaining_amount <= 0));
+const canSubmitExisting = computed(() => Boolean(isEditingPendingExpense.value && targetExpense.value && targetExpense.value.allocation_count > 0 && targetExpense.value.remaining_amount <= 0));
+const displayEvidenceAttachments = computed(() => [...(isEditingPendingExpense.value ? targetExpense.value?.attachments ?? [] : []), ...evidenceAttachments.value]);
+const displayInvoiceAttachment = computed<Attachment | null>(() => {
+  if (stagedInvoice.value) return stagedInvoice.value;
+  const expense = isEditingPendingExpense.value ? targetExpense.value : null;
+  if (!expense?.allocation_count || !expense.allocations.length) return null;
+  const allocation = expense.allocations[0];
+  const linked = (expense.invoice_attachments ?? []).find((item) => item.id === allocation.attachment_id);
+  if (linked) return linked;
+  return {
+    id: allocation.attachment_id,
+    original_filename: allocation.invoice_number ? `发票-${allocation.invoice_number}.jpg` : `invoice-${allocation.attachment_id}.jpg`,
+    file_hash: "",
+    file_size: 0,
+    duplicate_count: 0,
+    is_duplicate: false,
+    duplicate_of: [],
+    pool_status: "pooled",
+    ocr_status: "success",
+    ocr_result: {},
+    created_at: allocation.created_at,
+  };
+});
+const displayInvoiceDetailItem = computed<Record<string, unknown> | null>(() => {
+  if (stagedInvoice.value && selectedInvoiceItem.value) return selectedInvoiceItem.value;
+  const expense = isEditingPendingExpense.value ? targetExpense.value : null;
+  const attachment = displayInvoiceAttachment.value;
+  if (!expense?.allocations.length || !attachment) return null;
+  const allocation = expense.allocations[0];
+  const items = invoiceItemsOf(attachment);
+  const ocrItem = items[allocation.invoice_item_index];
+  if (ocrItem) return ocrItem;
+  return {
+    amount: allocation.invoice_amount,
+    buyer: allocation.invoice_buyer,
+    invoice_number: allocation.invoice_number,
+    date: allocation.invoice_date,
+    sub_type_description: allocation.invoice_type,
+    seller: "",
+    seller_name: "",
+    item_name: allocation.invoice_type,
+  };
+});
+const canRemoveInvoice = computed(() => {
+  if (stagedInvoice.value) return true;
+  const expense = targetExpense.value;
+  return Boolean(expense?.allocation_count && expense.status === "pending");
+});
+const invoiceUploadLocked = computed(() => saving.value || Boolean(stagedInvoice.value) || Boolean(isEditingPendingExpense.value && targetExpense.value?.allocation_count));
+
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
 
 function recordState(expense: Expense): RecordState {
+  if (expense.status === "reviewed") return "approved";
+  if (expense.status === "matched") return "submitted";
+  if (expense.status === "pending" && expense.reject_reason) return "rejected";
   if (expense.status === "pending" && (expense.allocation_count === 0 || expense.remaining_amount > 0)) return "missing_material";
   if (expense.status === "pending") return "ready";
   return "submitted";
@@ -84,6 +177,8 @@ function recordStateLabel(expense: Expense): string {
   const state = recordState(expense);
   if (state === "missing_material") return "待补材料";
   if (state === "ready") return "待提交";
+  if (state === "rejected") return "已打回";
+  if (state === "approved") return "已完成";
   return "已提交";
 }
 
@@ -91,7 +186,25 @@ function recordStateClass(expense: Expense): string {
   const state = recordState(expense);
   if (state === "missing_material") return "bg-amber-100 text-amber-800";
   if (state === "ready") return "bg-teal-50 text-teal-800";
+  if (state === "rejected") return "bg-rose-50 text-rose-700";
+  if (state === "approved") return "bg-slate-100 text-slate-500";
   return "bg-slate-100 text-slate-600";
+}
+
+function tableRowClass(sectionKey: TableSection["key"], record: Expense): string {
+  if (sectionKey === "approved" || recordState(record) === "approved") {
+    return "bg-slate-50/80 text-slate-500";
+  }
+  if (recordState(record) === "rejected") {
+    return "bg-rose-50/30 hover:bg-rose-50/50";
+  }
+  return "hover:bg-slate-50";
+}
+
+function tableSectionClass(sectionKey: TableSection["key"]): string {
+  if (sectionKey === "approved") return "border-t-4 border-slate-300";
+  if (sectionKey === "submitted") return "border-t-4 border-slate-200";
+  return "";
 }
 
 function resetComposer() {
@@ -99,7 +212,20 @@ function resetComposer() {
   evidenceAttachments.value = [];
   stagedInvoice.value = null;
   isNewSubstitute.value = false;
+  substituteReason.value = "";
   expenseForm.value = { project_name: "", actual_amount: "", category: DEFAULT_EXPENSE_CATEGORY };
+}
+
+function setSubstitute(value: boolean) {
+  isNewSubstitute.value = value;
+  if (value) {
+    error.value = "";
+    requestAnimationFrame(() => {
+      substituteReasonInput.value?.focus();
+    });
+  } else {
+    substituteReason.value = "";
+  }
 }
 
 function startNewExpense() {
@@ -109,10 +235,24 @@ function startNewExpense() {
   success.value = "";
 }
 
+function syncComposerWithLoadedExpenses() {
+  if (!targetExpenseId.value) return;
+  const current = expenses.value.find((expense) => expense.id === targetExpenseId.value);
+  if (!current || current.status !== "pending") {
+    resetComposer();
+    if (current?.status === "reviewed") {
+      isComposerOpen.value = false;
+      success.value = "该报销已完成审核。";
+    }
+  }
+}
+
 function openExistingExpense(expense: Expense) {
+  if (expense.status !== "pending") return;
   targetExpenseId.value = expense.id;
   isComposerOpen.value = true;
   isNewSubstitute.value = expense.is_substitute;
+  substituteReason.value = expense.substitute_reason || "";
   expenseForm.value = {
     project_name: expense.project_name,
     actual_amount: String(expense.actual_amount),
@@ -121,7 +261,7 @@ function openExistingExpense(expense: Expense) {
   evidenceAttachments.value = [];
   stagedInvoice.value = null;
   error.value = "";
-  success.value = "";
+  success.value = expense.reject_reason ? "此报销已被打回，请修改后重新提交。" : "";
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -130,6 +270,7 @@ async function load() {
   error.value = "";
   try {
     expenses.value = await listExpenses();
+    syncComposerWithLoadedExpenses();
     emit("refreshed");
   } catch (err) {
     error.value = err instanceof Error ? err.message : "加载报销记录失败";
@@ -171,13 +312,38 @@ type PreparedInvoiceLink = {
   buyerConfirmed: boolean;
 };
 
-function prepareInvoiceLink(attachment: Attachment, actualAmount: number, allowUnderage: boolean): PreparedInvoiceLink {
+function prepareInvoiceLink(
+  attachment: Attachment,
+  actualAmount: number,
+  isSubstitute: boolean,
+  reason = ""
+): PreparedInvoiceLink {
   const invoice = invoiceIndexAndItem(attachment);
   if (!invoice) throw new Error("发票未识别到有效金额，请重新上传");
   const amount = Number(invoice.item.amount);
-  if (amount < actualAmount && !allowUnderage) throw new Error("发票金额不足，请补充金额更足的发票");
-  const note = amount === actualAmount ? "" : window.prompt("票面金额高于报销金额，请填写替票说明：", "替票")?.trim() ?? "";
-  if (amount > actualAmount && !note) throw new Error("需要填写替票说明");
+  const expenseAmount = roundMoney(actualAmount);
+  const invoiceAmount = roundMoney(amount);
+
+  if (!isSubstitute) {
+    if (invoiceAmount < expenseAmount) {
+      throw new Error("发票金额不足，请补充金额更足的发票");
+    }
+    if (invoiceAmount > expenseAmount) {
+      throw new Error("发票金额高于报销金额，请选择「替票」并填写替票说明");
+    }
+  } else if (invoiceAmount < expenseAmount) {
+    throw new Error("发票金额不足，请补充金额更足的发票");
+  }
+
+  let note = "";
+  if (isSubstitute && invoiceAmount !== expenseAmount) {
+    note = reason.trim();
+    if (!note) {
+      setSubstitute(true);
+      throw new Error("请填写替票说明后再提交");
+    }
+  }
+
   const buyerConfirmed = isBuyerConfirmationNeeded(invoice.item)
     ? window.confirm("发票购买方需要人工确认，确认继续吗？")
     : false;
@@ -194,12 +360,74 @@ async function linkInvoiceToExpense(expenseId: number, attachment: Attachment, p
   });
 }
 
+function withUploadPreview(files: File[], uploaded: Attachment[]): Attachment[] {
+  return uploaded.map((attachment, index) => {
+    const file = files[index];
+    if (!file?.type.startsWith("image/")) return attachment;
+    return { ...attachment, preview_url: URL.createObjectURL(file) };
+  });
+}
+
+function isStagedEvidence(attachment: Attachment): boolean {
+  return evidenceAttachments.value.some((item) => item.id === attachment.id);
+}
+
+function openAttachmentPreview(attachment: Attachment) {
+  previewAttachment.value = attachment;
+}
+
+function closeAttachmentPreview() {
+  previewAttachment.value = null;
+}
+
+async function removeEvidenceAttachment(attachment: Attachment) {
+  if (!window.confirm("确认删除这份佐证材料？")) return;
+  removingAttachmentId.value = attachment.id;
+  error.value = "";
+  try {
+    if (targetExpenseId.value && !isStagedEvidence(attachment)) {
+      await deleteExpenseAttachment(targetExpenseId.value, attachment.id);
+      await load();
+    } else {
+      await deleteAttachment(attachment.id);
+      evidenceAttachments.value = evidenceAttachments.value.filter((item) => item.id !== attachment.id);
+    }
+    success.value = "佐证材料已删除";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "佐证材料删除失败";
+  } finally {
+    removingAttachmentId.value = null;
+  }
+}
+
+async function removeInvoiceAttachment(attachment: Attachment) {
+  if (!window.confirm("确认删除这张发票？")) return;
+  removingAttachmentId.value = attachment.id;
+  error.value = "";
+  try {
+    if (targetExpenseId.value && targetExpense.value?.allocation_count) {
+      await deleteExpenseInvoiceAttachment(targetExpenseId.value, attachment.id);
+      await load();
+    } else {
+      await deleteAttachment(attachment.id);
+      if (stagedInvoice.value?.id === attachment.id) {
+        stagedInvoice.value = null;
+      }
+    }
+    success.value = "发票已删除";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "发票删除失败";
+  } finally {
+    removingAttachmentId.value = null;
+  }
+}
+
 async function handleEvidenceFiles(files: File[]) {
   if (!files.length) return;
   saving.value = true;
   error.value = "";
   try {
-    const uploaded = await uploadAttachments(files);
+    const uploaded = withUploadPreview(files, await uploadAttachments(files));
     if (targetExpenseId.value) {
       await linkExpenseAttachments(targetExpenseId.value, { attachment_ids: uploaded.map((item) => item.id) });
       await load();
@@ -217,6 +445,7 @@ async function handleEvidenceFiles(files: File[]) {
 
 async function handleInvoiceFiles(files: File[]) {
   if (!files.length) return;
+  if (invoiceUploadLocked.value) return;
   if (files.length > 1) {
     error.value = "发票一次只能上传 1 张";
     return;
@@ -224,9 +453,14 @@ async function handleInvoiceFiles(files: File[]) {
   saving.value = true;
   error.value = "";
   try {
-    const uploaded = await uploadAttachment(files[0]);
+    const uploaded = withUploadPreview(files, [await uploadAttachment(files[0])])[0];
     if (targetExpenseId.value) {
-      const prepared = prepareInvoiceLink(uploaded, Number(expenseForm.value.actual_amount), true);
+      const prepared = prepareInvoiceLink(
+        uploaded,
+        Number(expenseForm.value.actual_amount),
+        isNewSubstitute.value,
+        substituteReason.value
+      );
       await linkInvoiceToExpense(targetExpenseId.value, uploaded, prepared);
       await load();
       success.value = "发票已上传并关联";
@@ -235,6 +469,7 @@ async function handleInvoiceFiles(files: File[]) {
       success.value = "发票已上传并完成识别";
     }
   } catch (err) {
+    success.value = "";
     error.value = err instanceof Error ? err.message : "发票上传失败";
   } finally {
     saving.value = false;
@@ -276,11 +511,20 @@ async function saveNewExpense(submitAfter: boolean) {
     category: expenseForm.value.category,
     is_substitute: isNewSubstitute.value,
   };
-  const prepared = stagedInvoice.value ? prepareInvoiceLink(stagedInvoice.value, actualAmount, !submitAfter) : null;
+  const prepared = stagedInvoice.value
+    ? prepareInvoiceLink(stagedInvoice.value, actualAmount, isNewSubstitute.value, substituteReason.value)
+    : null;
+  const reason = (prepared?.note || substituteReason.value).trim();
+  if (isNewSubstitute.value && amountsMismatch.value && !reason) {
+    setSubstitute(true);
+    throw new Error("请填写替票说明后再提交");
+  }
   if (submitAfter) {
     if (!stagedInvoice.value || !prepared) throw new Error("请先上传发票");
     return createAndSubmitExpense({
       ...payload,
+      is_substitute: isNewSubstitute.value,
+      substitute_reason: reason,
       invoices: [{ attachment_id: stagedInvoice.value.id, invoice_item_index: prepared.index }],
       attachment_ids: evidenceAttachments.value.map((item) => item.id),
       note: prepared.note,
@@ -288,7 +532,11 @@ async function saveNewExpense(submitAfter: boolean) {
     });
   }
 
-  let created = await createExpenseDraft(payload);
+  let created = await createExpenseDraft({
+    ...payload,
+    is_substitute: isNewSubstitute.value,
+    substitute_reason: reason,
+  });
   if (evidenceAttachments.value.length) {
     created = await linkExpenseAttachments(created.id, { attachment_ids: evidenceAttachments.value.map((item) => item.id) });
   }
@@ -326,7 +574,18 @@ async function submitCurrent() {
     if (targetExpenseId.value) {
       const current = expenses.value.find((expense) => expense.id === targetExpenseId.value);
       if (!current || !canSubmitExisting.value) throw new Error("请先补齐发票后再提交");
-      await submitExpense(current.id);
+      if (amountsMismatch.value && !isNewSubstitute.value) {
+        setSubstitute(true);
+        throw new Error("发票金额与报销金额不一致，请选择「替票」并填写替票说明");
+      }
+      if (isNewSubstitute.value && amountsMismatch.value && !substituteReason.value.trim()) {
+        setSubstitute(true);
+        throw new Error("请填写替票说明后再提交");
+      }
+      await submitExpense(current.id, {
+        is_substitute: isNewSubstitute.value,
+        substitute_reason: substituteReason.value.trim(),
+      });
       success.value = "报销已提交";
     } else {
       const created = await saveNewExpense(true);
@@ -369,43 +628,142 @@ async function withdraw(record: Expense) {
   }
 }
 
-function stagedInvoiceText(key: string[]): string {
-  return selectedInvoiceItem.value ? invoiceText(selectedInvoiceItem.value, key) : "待识别";
+async function deleteRecord(record: Expense) {
+  if (!window.confirm("确认删除此笔待补材料报销？此操作不可恢复。")) return;
+  saving.value = true;
+  error.value = "";
+  try {
+    await deleteExpense(record.id);
+    success.value = "待补材料报销已删除";
+    await load();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "删除失败";
+  } finally {
+    saving.value = false;
+  }
 }
 
-onMounted(load);
+function invoiceDetailText(keys: string[]): string {
+  const item = displayInvoiceDetailItem.value;
+  return item ? invoiceText(item, keys) : "待识别";
+}
+
+onMounted(() => {
+  void load();
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
+});
 watch(() => props.refreshKey, load);
+watch(targetExpense, (expense) => {
+  if (!targetExpenseId.value || !expense) return;
+  if (expense.status !== "pending") {
+    resetComposer();
+    if (expense.status === "reviewed") {
+      isComposerOpen.value = false;
+    }
+  }
+});
+
+function handleVisibilityChange() {
+  if (document.visibilityState === "visible") void load();
+}
 </script>
 
 <template>
   <div class="mx-auto max-w-6xl space-y-7">
-    <header class="flex flex-wrap items-end justify-between gap-5 border-b border-slate-200 pb-5">
-      <div class="flex flex-wrap items-end gap-x-7 gap-y-4">
+    <header class="space-y-5 border-b border-slate-200 pb-5">
+      <div class="flex flex-wrap items-end justify-between gap-5">
         <div>
           <p class="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">JetBao / {{ month }}</p>
-          <h1 class="mt-2 text-3xl font-semibold tracking-tight text-ink">本月报销</h1>
-        </div>
-        <div class="flex items-end gap-6 border-l border-slate-200 pl-7">
-          <div><p class="text-xs text-slate-500">已提交</p><p class="mt-1 text-sm font-semibold text-ink">{{ formatCurrency(submittedTotal) }} <span class="font-medium text-slate-500">/ {{ submittedRecords.length }} 笔</span></p></div>
-          <div><p class="text-xs text-slate-500">待补材料</p><p class="mt-1 text-sm font-semibold text-amber-700">{{ materialMissingCount }} 笔</p></div>
+          <h1 class="mt-2 text-3xl font-semibold tracking-tight text-ink">个人报销</h1>
         </div>
       </div>
-      <button class="primary-button" type="button" @click="isComposerOpen ? (isComposerOpen = false) : startNewExpense()">
-        <X v-if="isComposerOpen" class="h-4 w-4" /><Plus v-else class="h-4 w-4" />
-        {{ isComposerOpen ? "收起" : "新建报销" }}
-      </button>
+      <div class="grid gap-3 sm:grid-cols-3">
+        <div class="rounded-3xl border border-teal-100 bg-teal-50 p-5 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">已提交</p>
+          <div class="mt-4">
+            <p class="text-3xl font-semibold text-ink">{{ formatCurrency(submittedTotal) }}</p>
+            <p class="mt-2 text-sm text-slate-600">{{ submittedRecords.length }} 笔待审核</p>
+          </div>
+        </div>
+        <div class="rounded-3xl border border-rose-100 bg-rose-50 p-5 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">已打回</p>
+          <div class="mt-4">
+            <p class="text-3xl font-semibold text-rose-900">{{ rejectedCount }}</p>
+            <p class="mt-2 text-sm text-slate-600">需修改后重新提交</p>
+          </div>
+        </div>
+        <div class="rounded-3xl border border-orange-100 bg-orange-50 p-5 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">待补材料</p>
+          <div class="mt-4">
+            <p class="text-3xl font-semibold text-orange-900">{{ formatCurrency(materialMissingTotal) }}</p>
+            <p class="mt-2 text-sm text-slate-600">{{ materialMissingCount }} 笔</p>
+          </div>
+        </div>
+      </div>
+      <div v-if="approvedRecords.length" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        已完成 {{ approvedRecords.length }} 笔，合计 {{ formatCurrency(approvedTotal) }}（见下方灰色记录）
+      </div>
     </header>
 
     <p v-if="error" class="border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{{ error }}</p>
     <p v-if="success" class="border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-800">{{ success }}</p>
 
+    <div v-if="!isComposerOpen" class="flex justify-end pt-4">
+      <button class="primary-button h-10 px-4" type="button" @click="startNewExpense()">
+        <Plus class="h-4 w-4" />
+        新建报销
+      </button>
+    </div>
+
     <section v-if="isComposerOpen" class="border-y border-slate-200 bg-white">
+      <div v-if="isEditingPendingExpense && targetExpense?.reject_reason" class="border-b border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-800">
+        <span class="font-medium">管理员打回：</span>{{ targetExpense.reject_reason }}
+      </div>
       <div class="p-5">
         <div class="grid gap-x-7 gap-y-5 lg:grid-cols-[minmax(0,1fr)_150px_190px_150px]">
-          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">报销事项</span><input v-model="expenseForm.project_name" :disabled="isEditingExisting" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition focus:border-teal-700 disabled:text-slate-500" placeholder="填写报销事项" /></label>
-          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">金额</span><input v-model="expenseForm.actual_amount" :disabled="isEditingExisting" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition focus:border-teal-700 disabled:text-slate-500" inputmode="decimal" placeholder="0.00" /></label>
-          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">类别</span><select v-model="expenseForm.category" :disabled="isEditingExisting" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition focus:border-teal-700 disabled:text-slate-500"><option v-for="category in EXPENSE_CATEGORIES" :key="category">{{ category }}</option></select></label>
-          <div><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">替票</span><div class="mt-1 flex h-9 items-center gap-4 border-b border-slate-300 text-[14px] font-medium"><button class="h-full border-b-2 px-1 transition" :class="!isNewSubstitute ? 'border-slate-800 text-ink' : 'border-transparent text-slate-400 hover:text-slate-700'" :disabled="isEditingExisting" type="button" @click="isNewSubstitute = false">否</button><button class="h-full border-b-2 px-1 transition" :class="isNewSubstitute ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-400 hover:text-slate-700'" :disabled="isEditingExisting" type="button" @click="isNewSubstitute = true">是</button></div></div>
+          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">报销事项</span><input v-model="expenseForm.project_name" :disabled="isEditingPendingExpense" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700 disabled:text-slate-500" placeholder="填写报销事项" /></label>
+          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">金额</span><input v-model="expenseForm.actual_amount" :disabled="isEditingPendingExpense" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700 disabled:text-slate-500" inputmode="decimal" placeholder="0.00" /></label>
+          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">类别</span><select v-model="expenseForm.category" :disabled="isEditingPendingExpense" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700 disabled:text-slate-500"><option v-for="category in EXPENSE_CATEGORIES" :key="category">{{ category }}</option></select></label>
+          <div>
+            <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">替票</span>
+            <div class="mt-1 flex h-9 items-center gap-4 border-b border-slate-300 text-[14px] font-medium">
+              <button
+                class="h-full border-b-2 px-1 transition"
+                :class="!isNewSubstitute ? 'border-slate-800 text-ink' : 'border-transparent text-slate-400 hover:text-slate-700'"
+                type="button"
+                @click="setSubstitute(false)"
+              >
+                否
+              </button>
+              <button
+                class="h-full border-b-2 px-1 transition"
+                :class="isNewSubstitute ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-400 hover:text-slate-700'"
+                type="button"
+                @click="setSubstitute(true)"
+              >
+                是
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="showSubstituteReason" class="mt-5 rounded-lg border border-orange-200 bg-orange-50/70 px-4 py-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <label class="text-sm font-medium text-orange-900" for="substitute-reason-input">替票说明</label>
+            <span v-if="amountsMismatch && !isNewSubstitute" class="text-xs text-orange-700">金额不一致，请先选择替票「是」</span>
+            <span v-else-if="amountsMismatch" class="text-xs text-orange-700">票面与报销金额不一致，须填写说明</span>
+          </div>
+          <textarea
+            id="substitute-reason-input"
+            ref="substituteReasonInput"
+            v-model="substituteReason"
+            class="mt-2 min-h-[84px] w-full rounded-md border border-orange-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-200"
+            :disabled="!isNewSubstitute"
+            :placeholder="isNewSubstitute ? '例如：发票含其他项目，本次仅报销其中一部分' : '选择替票「是」后在此填写说明'"
+          />
         </div>
       </div>
 
@@ -414,19 +772,121 @@ watch(() => props.refreshKey, load);
       <div class="grid gap-px border-y border-slate-200 bg-slate-200 lg:grid-cols-2">
         <div class="space-y-3 bg-white p-5">
           <div class="flex items-center justify-between"><span class="field-label">上传佐证材料</span><span class="text-xs text-slate-500">可一次上传多张</span></div>
-          <button class="flex min-h-28 w-full flex-col items-center justify-center border border-dashed px-4 text-center transition" :class="evidenceDragging ? 'border-teal-600 bg-teal-50' : 'border-slate-300 bg-slate-50 hover:border-teal-600 hover:bg-teal-50'" :disabled="saving" type="button" @click="evidenceInput?.click()" @dragenter.prevent="evidenceDragging = true" @dragover.prevent="evidenceDragging = true" @dragleave.prevent="evidenceDragging = false" @drop.prevent="handleEvidenceDrop"><Loader2 v-if="saving" class="h-5 w-5 animate-spin text-teal-700" /><ImagePlus v-else class="h-5 w-5 text-teal-700" /><span class="mt-2 text-sm font-medium text-slate-800">{{ evidenceDragging ? "松开上传" : "点击或拖拽上传佐证材料（可多选）" }}</span></button>
-          <div v-if="evidenceAttachments.length || targetExpense?.attachments.length" class="space-y-1 border-l-2 border-slate-400 bg-slate-50 px-3 py-2 text-xs text-slate-600"><div v-for="attachment in [...(targetExpense?.attachments ?? []), ...evidenceAttachments]" :key="attachment.id" class="flex items-center gap-2"><ImagePlus class="h-3.5 w-3.5 text-slate-500" /><span class="truncate">{{ attachment.original_filename }}</span></div></div>
+          <div
+            class="upload-zone min-h-28 w-full border border-dashed transition"
+            :class="evidenceDragging ? 'border-teal-600 bg-teal-50' : 'border-slate-300 bg-slate-50'"
+            @dragenter.prevent="evidenceDragging = true"
+            @dragover.prevent="evidenceDragging = true"
+            @dragleave.prevent="evidenceDragging = false"
+            @drop.prevent="handleEvidenceDrop"
+          >
+            <div v-if="displayEvidenceAttachments.length" class="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3">
+              <UploadAttachmentTile
+                v-for="attachment in displayEvidenceAttachments"
+                :key="attachment.id"
+                :attachment="attachment"
+                :removable="isEditingPendingExpense && !saving"
+                :removing="removingAttachmentId === attachment.id"
+                @preview="openAttachmentPreview"
+                @remove="removeEvidenceAttachment"
+              />
+              <button
+                class="flex aspect-square flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-teal-600 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="saving"
+                type="button"
+                @click="evidenceInput?.click()"
+              >
+                <Loader2 v-if="saving" class="h-5 w-5 animate-spin" />
+                <ImagePlus v-else class="h-5 w-5" />
+                <span class="mt-1 text-[11px] font-medium">继续上传</span>
+              </button>
+            </div>
+            <button
+              v-else
+              class="flex min-h-28 w-full flex-col items-center justify-center px-4 text-center transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="saving"
+              type="button"
+              @click="evidenceInput?.click()"
+            >
+              <Loader2 v-if="saving" class="h-5 w-5 animate-spin text-teal-700" />
+              <ImagePlus v-else class="h-5 w-5 text-teal-700" />
+              <span class="mt-2 text-sm font-medium text-slate-800">{{ evidenceDragging ? "松开上传" : "点击或拖拽上传佐证材料（可多选）" }}</span>
+            </button>
+          </div>
         </div>
 
         <div class="space-y-3 bg-white p-5">
           <div class="flex items-center justify-between"><span class="field-label">上传发票</span><span class="text-xs text-slate-500">一次上传 1 张</span></div>
-          <button class="flex min-h-28 w-full flex-col items-center justify-center border border-dashed px-4 text-center transition" :class="invoiceDragging ? 'border-teal-600 bg-teal-50' : 'border-slate-300 bg-slate-50 hover:border-teal-600 hover:bg-teal-50'" :disabled="saving || Boolean(stagedInvoice)" type="button" @click="invoiceInput?.click()" @dragenter.prevent="invoiceDragging = true" @dragover.prevent="invoiceDragging = true" @dragleave.prevent="invoiceDragging = false" @drop.prevent="handleInvoiceDrop"><Loader2 v-if="saving" class="h-5 w-5 animate-spin text-teal-700" /><FilePlus2 v-else class="h-5 w-5 text-teal-700" /><span class="mt-2 text-sm font-medium text-slate-800">{{ invoiceDragging ? "松开上传" : stagedInvoice ? "已上传 1 张发票" : "点击或拖拽上传 1 张发票" }}</span></button>
-          <div v-if="stagedInvoice && selectedInvoiceItem" class="grid grid-cols-2 gap-x-4 gap-y-2 border-l-2 border-teal-600 bg-slate-50 px-3 py-3 text-xs text-slate-500"><span>金额</span><strong class="text-right text-slate-900">{{ formatCurrency(Number(selectedInvoiceItem.amount)) }}</strong><span>项目名称</span><strong class="truncate text-right text-slate-900">{{ stagedInvoiceText(["item_name", "goods_name", "title", "sub_type_description"]) }}</strong><span>销售方</span><strong class="truncate text-right text-slate-900">{{ stagedInvoiceText(["seller", "seller_name"]) }}</strong><span>票种</span><strong class="truncate text-right text-slate-900">{{ stagedInvoiceText(["sub_type_description", "type_description"]) }}</strong></div>
-          <div v-else-if="targetExpense?.allocation_count" class="border-l-2 border-teal-600 bg-slate-50 px-3 py-3 text-xs text-teal-700">发票已关联</div>
+          <div
+            class="upload-zone min-h-28 w-full border border-dashed transition"
+            :class="invoiceDragging ? 'border-teal-600 bg-teal-50' : 'border-slate-300 bg-slate-50'"
+            @dragenter.prevent="invoiceDragging = true"
+            @dragover.prevent="invoiceDragging = true"
+            @dragleave.prevent="invoiceDragging = false"
+            @drop.prevent="handleInvoiceDrop"
+          >
+            <div v-if="displayInvoiceAttachment" class="mx-auto w-full max-w-[260px] space-y-2 p-3">
+              <UploadAttachmentTile
+                :attachment="displayInvoiceAttachment"
+                :removable="canRemoveInvoice && !saving"
+                :removing="removingAttachmentId === displayInvoiceAttachment.id"
+                @preview="openAttachmentPreview"
+                @remove="removeInvoiceAttachment"
+              />
+              <button
+                v-if="canRemoveInvoice && !saving"
+                class="mx-auto flex items-center gap-1.5 text-xs font-medium text-rose-600 transition hover:text-rose-700"
+                :disabled="removingAttachmentId === displayInvoiceAttachment.id"
+                type="button"
+                @click="removeInvoiceAttachment(displayInvoiceAttachment)"
+              >
+                <Loader2 v-if="removingAttachmentId === displayInvoiceAttachment.id" class="h-3.5 w-3.5 animate-spin" />
+                删除这张发票
+              </button>
+            </div>
+            <button
+              v-else
+              class="flex min-h-28 w-full flex-col items-center justify-center px-4 text-center transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="invoiceUploadLocked"
+              type="button"
+              @click="invoiceInput?.click()"
+            >
+              <Loader2 v-if="saving" class="h-5 w-5 animate-spin text-teal-700" />
+              <FilePlus2 v-else class="h-5 w-5 text-teal-700" />
+              <span class="mt-2 text-sm font-medium text-slate-800">{{ invoiceDragging ? "松开上传" : "点击或拖拽上传 1 张发票" }}</span>
+            </button>
+          </div>
+          <div v-if="displayInvoiceDetailItem" class="grid grid-cols-2 gap-x-4 gap-y-2 border-l-2 border-teal-600 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+            <span>金额</span><strong class="text-right text-slate-900">{{ formatCurrency(Number(displayInvoiceDetailItem.amount)) }}</strong>
+            <span>发票号码</span><strong class="truncate text-right text-slate-900">{{ invoiceDetailText(["invoice_number", "number"]) }}</strong>
+            <span>项目名称</span><strong class="truncate text-right text-slate-900">{{ invoiceDetailText(["item_name", "goods_name", "title", "sub_type_description"]) }}</strong>
+            <span>销售方</span><strong class="truncate text-right text-slate-900">{{ invoiceDetailText(["seller", "seller_name"]) }}</strong>
+            <span>票种</span><strong class="truncate text-right text-slate-900">{{ invoiceDetailText(["sub_type_description", "type_description"]) }}</strong>
+          </div>
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-5 py-4"><p class="text-xs text-slate-500">{{ isEditingExisting ? "补齐发票后即可提交这笔报销。" : "没有发票也可以先保存，记录会显示为待补材料。" }}</p><div class="flex gap-2"><button v-if="!isEditingExisting" class="secondary-button h-9 px-3 text-xs" :disabled="saving" type="button" @click="saveDraft">保存待补</button><button v-else class="secondary-button h-9 px-3 text-xs" type="button" @click="isComposerOpen = false">关闭</button><button class="primary-button h-9 px-3 text-xs" :disabled="saving || (isEditingExisting ? !canSubmitExisting : !canSubmitNew)" type="button" @click="submitCurrent"><Loader2 v-if="saving" class="h-3.5 w-3.5 animate-spin" /><CheckCircle2 v-else class="h-3.5 w-3.5" /> 提交报销</button></div></div>
+      <AttachmentPreviewModal :attachment="previewAttachment" :open="Boolean(previewAttachment)" @close="closeAttachmentPreview" />
+
+      <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-5 py-4">
+        <p class="text-xs text-slate-500">
+          {{
+            targetExpense?.reject_reason
+              ? "修改材料或发票后重新提交。"
+              : isEditingPendingExpense
+                ? "补齐发票后即可提交这笔报销。"
+                : "没有发票也可以先保存，记录会显示为待补材料。"
+          }}
+        </p>
+        <div class="flex flex-wrap items-center gap-2">
+          <button class="secondary-button h-9 px-3 text-xs" type="button" @click="isComposerOpen = false">收起</button>
+          <button v-if="!isEditingPendingExpense" class="secondary-button h-9 px-3 text-xs" :disabled="saving" type="button" @click="saveDraft">保存待补</button>
+          <button class="primary-button h-9 px-3 text-xs" :disabled="saving || (isEditingPendingExpense ? !canSubmitExisting : !canSubmitNew)" type="button" @click="submitCurrent">
+            <Loader2 v-if="saving" class="h-3.5 w-3.5 animate-spin" />
+            <CheckCircle2 v-else class="h-3.5 w-3.5" /> 提交报销
+          </button>
+        </div>
+      </div>
     </section>
 
     <section>
@@ -434,7 +894,64 @@ watch(() => props.refreshKey, load);
       <div v-if="loading" class="border-y border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-500">加载中...</div>
       <div v-else-if="!currentMonthExpenses.length" class="border-y border-slate-200 bg-white px-4 py-12 text-center text-sm text-slate-500">本月还没有报销记录，先新建一笔。</div>
       <div v-else class="overflow-x-auto border-y border-slate-200 bg-white">
-        <table class="min-w-[900px] w-full text-left text-[13px]"><thead class="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500"><tr><th class="px-4 py-2.5">状态</th><th class="px-4 py-2.5">报销事项</th><th class="px-4 py-2.5">类别</th><th class="px-4 py-2.5 text-right">金额</th><th class="px-4 py-2.5">替票</th><th class="px-4 py-2.5">佐证</th><th class="px-4 py-2.5">发票</th><th class="px-4 py-2.5 text-right">操作</th></tr></thead><tbody v-for="section in tableSections" :key="section.key" class="divide-y divide-slate-100" :class="section.key === 'submitted' ? 'border-t-4 border-slate-300' : ''"><tr v-for="record in section.records" :key="record.id" class="h-14 transition hover:bg-slate-50"><td class="px-4 py-2"><span class="status-pill" :class="recordStateClass(record)">{{ recordStateLabel(record) }}</span></td><td class="px-4 py-2 font-medium text-ink">{{ record.project_name || record.category }}</td><td class="px-4 py-2 text-slate-600">{{ record.category }}</td><td class="px-4 py-2 text-right font-medium text-ink">{{ formatCurrency(record.actual_amount) }}</td><td class="px-4 py-2"><span :class="record.is_substitute ? 'text-orange-700' : 'text-slate-500'">{{ record.is_substitute ? "是" : "否" }}</span></td><td class="px-4 py-2"><span :class="record.attachments.length ? 'text-slate-700' : 'text-amber-700'">{{ record.attachments.length ? `${record.attachments.length} 份` : "未上传" }}</span></td><td class="px-4 py-2"><span :class="record.allocation_count ? 'text-teal-700' : 'text-amber-700'">{{ record.allocation_count ? "已上传" : "未上传" }}</span></td><td class="px-4 py-2 text-right"><button v-if="recordState(record) === 'missing_material'" class="secondary-button h-8 px-2.5 text-xs" type="button" @click="openExistingExpense(record)">补材料</button><button v-else-if="recordState(record) === 'ready'" class="primary-button h-8 px-2.5 text-xs" :disabled="saving" type="button" @click="submitRecord(record)">提交报销</button><button v-else-if="record.status === 'matched'" class="secondary-button h-8 px-2.5 text-xs" :disabled="saving" type="button" @click="withdraw(record)">撤回</button><span v-else class="text-xs text-slate-400">已完成</span></td></tr></tbody></table>
+        <table class="min-w-[900px] w-full text-left text-[13px]">
+          <thead class="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+            <tr>
+              <th class="px-4 py-2.5">状态</th>
+              <th class="px-4 py-2.5">报销事项</th>
+              <th class="px-4 py-2.5">类别</th>
+              <th class="px-4 py-2.5 text-right">金额</th>
+              <th class="px-4 py-2.5">替票</th>
+              <th class="px-4 py-2.5">佐证</th>
+              <th class="px-4 py-2.5">发票</th>
+              <th class="px-4 py-2.5 text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody
+            v-for="section in tableSections"
+            :key="section.key"
+            class="divide-y divide-slate-100"
+            :class="tableSectionClass(section.key)"
+          >
+            <tr v-for="record in section.records" :key="record.id" class="h-14 transition" :class="tableRowClass(section.key, record)">
+              <td class="px-4 py-2">
+                <span class="status-pill" :class="recordStateClass(record)">{{ recordStateLabel(record) }}</span>
+                <div v-if="record.reject_reason" class="mt-1 max-w-40 truncate text-[11px] text-rose-600" :title="record.reject_reason">
+                  {{ record.reject_reason }}
+                </div>
+              </td>
+              <td class="px-4 py-2 font-medium" :class="section.key === 'approved' ? 'text-slate-500' : 'text-ink'">{{ record.project_name || record.category }}</td>
+              <td class="px-4 py-2 text-slate-600">{{ record.category }}</td>
+              <td class="px-4 py-2 text-right font-medium" :class="section.key === 'approved' ? 'text-slate-500' : 'text-ink'">{{ formatCurrency(record.actual_amount) }}</td>
+              <td class="px-4 py-2"><span :class="record.is_substitute ? 'text-orange-700' : 'text-slate-500'">{{ record.is_substitute ? "是" : "否" }}</span></td>
+              <td class="px-4 py-2"><span :class="record.attachments.length ? 'text-slate-700' : 'text-amber-700'">{{ record.attachments.length ? `${record.attachments.length} 份` : "未上传" }}</span></td>
+              <td class="px-4 py-2"><span :class="record.allocation_count ? 'text-teal-700' : 'text-amber-700'">{{ record.allocation_count ? "已上传" : "未上传" }}</span></td>
+              <td class="px-4 py-2 text-right">
+                <div class="flex items-center justify-end gap-1.5">
+                  <template v-if="recordState(record) === 'rejected'">
+                    <button class="secondary-button h-8 px-2.5 text-xs" type="button" @click="openExistingExpense(record)">修改</button>
+                    <button
+                      v-if="record.allocation_count && record.remaining_amount <= 0"
+                      class="primary-button h-8 px-2.5 text-xs"
+                      :disabled="saving"
+                      type="button"
+                      @click="submitRecord(record)"
+                    >
+                      重新提交
+                    </button>
+                  </template>
+                  <template v-else-if="recordState(record) === 'missing_material'">
+                    <button class="secondary-button h-8 px-2.5 text-xs" type="button" @click="openExistingExpense(record)">补材料</button>
+                    <button class="secondary-button h-8 px-2.5 text-xs text-rose-700 hover:bg-rose-50" type="button" :disabled="saving" @click="deleteRecord(record)">删除</button>
+                  </template>
+                  <button v-else-if="recordState(record) === 'ready'" class="primary-button h-8 px-2.5 text-xs" :disabled="saving" type="button" @click="submitRecord(record)">提交报销</button>
+                  <button v-else-if="recordState(record) === 'submitted'" class="secondary-button h-8 px-2.5 text-xs" :disabled="saving" type="button" @click="withdraw(record)">撤回</button>
+                  <span v-else class="text-xs text-slate-400">—</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
   </div>

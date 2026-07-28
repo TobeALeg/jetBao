@@ -99,8 +99,8 @@ onMounted(load);
 <template>
   <div class="mx-auto max-w-7xl space-y-5">
     <div>
-      <h1 class="page-title">员工管理</h1>
-      <p class="muted mt-1">管理员维护账号、角色和固定报销企业抬头。</p>
+      <h1 class="page-title">管理</h1>
+      <p class="muted mt-1">员工账号、角色和公司主体维护。</p>
     </div>
 
     <p v-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>

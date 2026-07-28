@@ -19,6 +19,7 @@ def serialize_user(row) -> UserResponse:
         employee_name=row["employee_name"],
         company_entity=row["company_entity"],
         is_active=bool(row["is_active"]),
+        guide_seen=bool(row["guide_seen"]) if "guide_seen" in row.keys() else False,
     )
 
 
@@ -37,6 +38,14 @@ def login(payload: LoginRequest, request: Request) -> LoginResponse:
 @router.get("/me", response_model=UserResponse)
 def me(user=Depends(get_current_user)) -> UserResponse:
     return serialize_user(user)
+
+
+@router.post("/me/guide-seen", response_model=UserResponse)
+def mark_guide_seen(request: Request, user=Depends(get_current_user)) -> UserResponse:
+    with request.app.state.db.connect() as connection:
+        connection.execute("UPDATE users SET guide_seen = 1 WHERE id = ?", (user["id"],))
+        updated = one(connection, "SELECT * FROM users WHERE id = ?", (user["id"],))
+    return serialize_user(updated)
 
 
 @router.patch("/me/password", response_model=UserResponse)

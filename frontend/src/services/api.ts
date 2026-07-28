@@ -5,6 +5,7 @@ import type {
   Attachment,
   DraftExpenseCompletePayload,
   Expense,
+  ExpenseReviewDetail,
   ExpenseAllocationBatchCreatePayload,
   ExpenseAllocationCreatePayload,
   ExpenseAttachmentLinkPayload,
@@ -80,6 +81,10 @@ export async function getMe(): Promise<User> {
   return request("/me");
 }
 
+export async function markGuideSeen(): Promise<User> {
+  return request("/me/guide-seen", { method: "POST" });
+}
+
 export async function changePassword(payload: PasswordChangePayload): Promise<User> {
   return request("/me/password", {
     method: "PATCH",
@@ -141,6 +146,12 @@ export async function deleteExpenseAttachment(expenseId: number, attachmentId: n
   });
 }
 
+export async function deleteExpenseInvoiceAttachment(expenseId: number, attachmentId: number): Promise<Expense> {
+  return request(`/expenses/${expenseId}/invoice-attachments/${attachmentId}`, {
+    method: "DELETE"
+  });
+}
+
 export async function deleteAttachment(id: number): Promise<{ deleted: boolean }> {
   return request(`/attachments/${id}`, {
     method: "DELETE"
@@ -170,13 +181,21 @@ export async function createAndSubmitExpense(payload: ExpenseSubmitPayload): Pro
 }
 
 // V2: 提交待处理花费
-export async function submitExpense(id: number): Promise<Expense> {
+export async function submitExpense(
+  id: number,
+  payload: { is_substitute?: boolean; substitute_reason?: string } = {}
+): Promise<Expense> {
   return request(`/expenses/${id}/submit`, {
-    method: "POST"
+    method: "POST",
+    body: JSON.stringify(payload)
   });
 }
 
 // V2: 管理员操作
+export async function getAdminExpenseReview(id: number): Promise<ExpenseReviewDetail> {
+  return request(`/admin/expenses/${id}`);
+}
+
 export async function approveExpense(id: number): Promise<Expense> {
   return request(`/admin/expenses/${id}/approve`, {
     method: "POST"
@@ -254,7 +273,7 @@ export async function getExportPreview(filters: Record<string, string>): Promise
   return request(`/admin/export/preview${query ? `?${query}` : ""}`);
 }
 
-export async function downloadExport(filters: Record<string, string>): Promise<void> {
+export async function downloadExport(filters: Record<string, string>, periodLabel = "全部"): Promise<void> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value) params.set(key, value);
@@ -270,12 +289,12 @@ export async function downloadExport(filters: Record<string, string>): Promise<v
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `报销台账-${filters.month || "全部"}.xlsx`;
+  link.download = `报销台账-${periodLabel}.xlsx`;
   link.click();
   URL.revokeObjectURL(url);
 }
 
-export async function downloadExportPackage(filters: Record<string, string>): Promise<void> {
+export async function downloadExportPackage(filters: Record<string, string>, periodLabel = "全部"): Promise<void> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value) params.set(key, value);
@@ -285,21 +304,19 @@ export async function downloadExportPackage(filters: Record<string, string>): Pr
     headers: token ? { Authorization: `Bearer ${token}` } : {}
   });
   if (!response.ok) {
-    throw new ApiError("导出明细包失败", response.status);
+    throw new ApiError("导出失败", response.status);
   }
   const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const plainMatch = disposition.match(/filename="?([^"]+)"?/i);
+  const serverName = utfMatch?.[1] ? decodeURIComponent(utfMatch[1]) : plainMatch?.[1];
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `${exportMonthLabel(filters.month)}报销明细包.zip`;
+  link.download = serverName || `山途远智${periodLabel}报销明细包.zip`;
   link.click();
   URL.revokeObjectURL(url);
-}
-
-function exportMonthLabel(month: string | undefined): string {
-  if (!month) return "全部";
-  const match = month.match(/^\d{4}-(\d{2})$/);
-  return match ? `${Number(match[1])}月` : month;
 }
 
 export async function listUsers(): Promise<AdminUser[]> {

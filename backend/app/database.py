@@ -114,12 +114,20 @@ class Database:
 
     def _migrate(self, connection: sqlite3.Connection) -> None:
         self._add_column_if_missing(connection, "users", "is_active", "INTEGER NOT NULL DEFAULT 1")
+        user_columns = {row["name"] for row in connection.execute("PRAGMA table_info(users)").fetchall()}
+        if "guide_seen" not in user_columns:
+            self._add_column_if_missing(connection, "users", "guide_seen", "INTEGER NOT NULL DEFAULT 0")
+            connection.execute("UPDATE users SET guide_seen = 1")
         self._add_column_if_missing(connection, "attachments", "pool_status", "TEXT NOT NULL DEFAULT 'pooled'")
         self._add_column_if_missing(connection, "expenses", "reject_reason", "TEXT NOT NULL DEFAULT ''")
         self._add_column_if_missing(connection, "expenses", "reviewed_at", "TEXT NOT NULL DEFAULT ''")
         # V2 status migration: draft→pending, submitted→matched
         connection.execute("UPDATE expenses SET status = 'pending' WHERE status = 'draft'")
         connection.execute("UPDATE expenses SET status = 'matched' WHERE status = 'submitted'")
+        # Shorten the default admin display name used in ledger lists.
+        connection.execute(
+            "UPDATE users SET employee_name = '管理员' WHERE lower(username) = 'admin' AND employee_name = '财务管理员'"
+        )
         for column, definition in (
             ("project_name", "TEXT NOT NULL DEFAULT ''"),
             ("invoice_buyer", "TEXT NOT NULL DEFAULT ''"),
@@ -237,7 +245,7 @@ class Database:
         if existing:
             return
         users = [
-            ("admin", "admin123", "admin", "财务管理员", "上海山途远智信息科技有限公司"),
+            ("admin", "admin123", "admin", "管理员", "上海山途远智信息科技有限公司"),
             ("Dandi", "dandi123", "admin", "艾丹迪", "上海山途远智信息科技有限公司"),
             ("Ouyang", "ouyang123", "admin", "欧阳", "上海山途远智信息科技有限公司"),
         ]

@@ -47,6 +47,11 @@ textarea {
     @apply h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-accent focus:ring-2 focus:ring-teal-700/10;
   }
 
+  .field-input:hover:not(:disabled),
+  .field-textarea:hover:not(:disabled) {
+    @apply border-slate-300 bg-slate-50;
+  }
+
   .field-textarea {
     @apply min-h-24 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-accent focus:ring-2 focus:ring-teal-700/10;
   }
@@ -55,8 +60,32 @@ textarea {
     @apply inline-flex h-10 items-center justify-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300;
   }
 
+  .primary-button:hover:not(:disabled) {
+    @apply bg-teal-800 shadow-sm;
+  }
+
   .secondary-button {
     @apply inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300;
+  }
+
+  .secondary-button:hover:not(:disabled) {
+    @apply bg-slate-50 border-slate-300 shadow-sm;
+  }
+
+  .secondary-button.text-rose-700:hover:not(:disabled) {
+    @apply bg-rose-50 border-rose-200;
+  }
+
+  select:hover:not(:disabled) {
+    @apply border-slate-400;
+  }
+
+  .upload-zone {
+    @apply transition duration-200 ease-out;
+  }
+
+  .upload-zone:hover:not(:disabled) {
+    @apply border-slate-400 bg-slate-50 shadow-sm;
   }
 
   .tool-panel {
@@ -97,6 +126,34 @@ textarea {
 
   .nav-badge {
     @apply ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800;
+  }
+
+  .nav-item {
+    @apply inline-flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition;
+  }
+
+  .nav-item-idle {
+    @apply text-slate-600 hover:bg-slate-50 hover:text-slate-900;
+  }
+
+  .nav-item-active {
+    @apply bg-teal-50 text-teal-800 shadow-sm;
+  }
+
+  .nav-item-icon {
+    @apply grid h-8 w-8 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-500 transition;
+  }
+
+  .nav-item-active .nav-item-icon {
+    @apply bg-teal-100 text-teal-700;
+  }
+
+  .nav-item-idle:hover .nav-item-icon {
+    @apply bg-slate-200 text-slate-700;
+  }
+
+  .nav-item-label {
+    @apply whitespace-nowrap;
   }
 
   .intake-grid {

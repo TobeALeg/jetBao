@@ -298,7 +298,7 @@ async function handleDrop(event: DragEvent) {
               <div class="text-right font-medium text-slate-900 sm:text-right">{{ invoiceAmount(item) }}</div>
               <div>页码：{{ invoiceText(item, "page") }}</div>
               <div>日期：{{ invoiceText(item, "date") }}</div>
-              <div>号码：{{ invoiceText(item, "invoice_number") }}</div>
+              <div>发票号码：{{ invoiceText(item, "invoice_number") }}</div>
               <div>销售方：{{ invoiceText(item, "seller") }}</div>
               <div class="flex items-center justify-end gap-1.5 sm:justify-start">
                 <span

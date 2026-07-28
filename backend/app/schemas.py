@@ -15,6 +15,7 @@ class UserResponse(BaseModel):
     employee_name: str
     company_entity: str
     is_active: bool = True
+    guide_seen: bool = False
 
 
 class LoginResponse(BaseModel):
@@ -134,6 +135,12 @@ class ExpenseSubmitRequest(BaseModel):
     substitute_reason: str = ""
 
 
+class PendingExpenseSubmitRequest(BaseModel):
+    """提交已有待处理花费时可同步更新替票信息"""
+    is_substitute: bool | None = None
+    substitute_reason: str | None = None
+
+
 class ExpenseResponse(BaseModel):
     id: int
     employee_name: str
@@ -161,6 +168,11 @@ class ExpenseResponse(BaseModel):
     created_at: str
     attachments: list[AttachmentResponse]
     allocations: list[ExpenseAllocationResponse] = []
+    invoice_attachments: list[AttachmentResponse] = []
+
+
+class ExpenseReviewDetailResponse(ExpenseResponse):
+    pass
 
 
 class LedgerRow(BaseModel):

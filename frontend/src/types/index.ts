@@ -1,6 +1,6 @@
 export type Role = "employee" | "admin";
 
-export type ViewKey = "monthly" | "history" | "admin-users";
+export type ViewKey = "monthly" | "history" | "guide" | "settings" | "admin-users";
 
 export type WorkspaceMode = "personal" | "admin";
 
@@ -13,6 +13,7 @@ export interface User {
   employee_name: string;
   company_entity: string;
   is_active: boolean;
+  guide_seen: boolean;
 }
 
 export interface DuplicateInfo {
@@ -78,7 +79,10 @@ export interface Expense {
   created_at: string;
   attachments: Attachment[];
   allocations: ExpenseAllocation[];
+  invoice_attachments?: Attachment[];
 }
+
+export interface ExpenseReviewDetail extends Expense {}
 
 // V2: Expense submit
 export interface ExpenseSubmitPayload {
