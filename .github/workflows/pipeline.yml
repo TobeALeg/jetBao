@@ -123,6 +123,9 @@ jobs:
     needs: publish
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
       - name: Prepare SSH
@@ -151,7 +154,11 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          printf '%s' "$GHCR_TOKEN" | ssh "$DEPLOY_USER@$DEPLOY_HOST" \
+            "docker login ghcr.io --username '$GHCR_USER' --password-stdin"
           ssh "$DEPLOY_USER@$DEPLOY_HOST" '
             set -eu
             cd /opt/jetbao
