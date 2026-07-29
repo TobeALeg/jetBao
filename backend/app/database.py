@@ -114,6 +114,14 @@ class Database:
 
     def _migrate(self, connection: sqlite3.Connection) -> None:
         self._add_column_if_missing(connection, "users", "is_active", "INTEGER NOT NULL DEFAULT 1")
+        self._add_column_if_missing(connection, "users", "email", "TEXT")
+        self._add_column_if_missing(connection, "users", "identity_id", "TEXT")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(lower(email)) WHERE email IS NOT NULL"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_identity_unique ON users(identity_id) WHERE identity_id IS NOT NULL"
+        )
         user_columns = {row["name"] for row in connection.execute("PRAGMA table_info(users)").fetchall()}
         if "guide_seen" not in user_columns:
             self._add_column_if_missing(connection, "users", "guide_seen", "INTEGER NOT NULL DEFAULT 0")

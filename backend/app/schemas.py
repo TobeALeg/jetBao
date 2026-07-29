@@ -11,6 +11,7 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     id: int
     username: str
+    email: str | None = None
     role: str
     employee_name: str
     company_entity: str
@@ -206,6 +207,8 @@ class LedgerRow(BaseModel):
 class AdminUserResponse(BaseModel):
     id: int
     username: str
+    email: str | None = None
+    identity_id: str | None = None
     role: str
     employee_name: str
     company_entity: str
@@ -215,13 +218,15 @@ class AdminUserResponse(BaseModel):
 
 class AdminUserCreateRequest(BaseModel):
     username: str = Field(min_length=1)
-    password: str = Field(min_length=1)
+    email: str | None = None
+    password: str | None = Field(default=None, min_length=1)
     role: str = Field(pattern=r"^(employee|admin)$")
     employee_name: str = Field(min_length=1)
     company_entity: str = Field(min_length=1)
 
 
 class AdminUserUpdateRequest(BaseModel):
+    email: str | None = None
     password: str | None = None
     role: str | None = Field(default=None, pattern=r"^(employee|admin)$")
     employee_name: str | None = None

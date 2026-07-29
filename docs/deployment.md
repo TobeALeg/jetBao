@@ -24,6 +24,14 @@
 
 ```dotenv
 SECRET_KEY=<long-random-value>
+AUTH_MODE=legacy
+SSO_AUTHORIZE_URL=https://mentti.work/sso/authorize
+SSO_TOKEN_URL=https://mentti.work/api/sso/token
+SSO_CLIENT_ID=jetbao
+SSO_CLIENT_SECRET=<same-random-secret-as-mentihub>
+SSO_REDIRECT_URI=https://jetbao.mentti.work/api/auth/sso/callback
+SSO_LOGOUT_URL=https://mentti.work/api/auth/logout
+SSO_COOKIE_SECURE=true
 TENCENT_SECRET_ID=
 TENCENT_SECRET_KEY=
 BOOTSTRAP_ADMIN_USERNAME=<first-admin>
@@ -32,7 +40,18 @@ BOOTSTRAP_ADMIN_EMPLOYEE_NAME=<employee-name>
 BOOTSTRAP_ADMIN_COMPANY_ENTITY=上海山途远智信息科技有限公司
 ```
 
-bootstrap 管理员只在数据库为空时创建。首次登录后应立即修改密码。
+bootstrap 管理员只在数据库为空时创建。
+
+## 统一登录切换
+
+统一登录必须分两次切换，避免旧员工尚未绑定邮箱时全员被锁在系统外：
+
+1. 先部署 MentiHub 授权码接口，并在其生产 env 设置相同的 `JETBAO_SSO_CLIENT_SECRET` 和固定回调地址。
+2. JetBao 设置 `AUTH_MODE=hybrid`，管理员继续用旧账号登录，在“管理”中为每位员工填写唯一企业邮箱。
+3. 用至少一个管理员和一个普通员工完成真实邮箱 OTP 登录，确认姓名、公司主体和角色仍来自 JetBao。
+4. 全员邮箱补齐后设置 `AUTH_MODE=sso` 并重新部署；此时用户名密码登录和修改密码接口关闭。
+
+不要根据旧用户名自动拼接邮箱。`identity_id` 会在员工第一次成功统一登录时自动绑定，之后同一邮箱返回不同身份会被拒绝。
 
 ## GitHub Environment
 

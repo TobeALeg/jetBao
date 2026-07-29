@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { Save, UserPlus } from "lucide-vue-next";
-import { createUser, deactivateUser, listUsers, updateUser } from "../services/api";
+import { createUser, deactivateUser, getAuthConfig, listUsers, updateUser } from "../services/api";
+import type { AuthConfig } from "../services/api";
 import { COMPANY_ENTITIES } from "../constants/companyEntities";
 import type { AdminUser, AdminUserCreatePayload, Role } from "../types";
 
@@ -10,9 +11,11 @@ const loading = ref(false);
 const saving = ref(false);
 const error = ref("");
 const success = ref("");
+const authConfig = ref<AuthConfig | null>(null);
 
 const newUser = reactive<AdminUserCreatePayload>({
   username: "",
+  email: "",
   password: "",
   role: "employee",
   employee_name: "",
@@ -25,7 +28,7 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    users.value = await listUsers();
+    [users.value, authConfig.value] = await Promise.all([listUsers(), getAuthConfig()]);
   } catch (err) {
     error.value = err instanceof Error ? err.message : "加载员工失败";
   } finally {
@@ -38,9 +41,12 @@ async function create() {
   error.value = "";
   success.value = "";
   try {
-    await createUser(newUser);
+    const payload = { ...newUser };
+    if (!authConfig.value?.legacy_enabled) delete payload.password;
+    await createUser(payload);
     Object.assign(newUser, {
       username: "",
+      email: "",
       password: "",
       role: "employee" as Role,
       employee_name: "",
@@ -63,6 +69,7 @@ async function save(user: AdminUser) {
     const password = editingPasswords[user.id]?.trim();
     await updateUser(user.id, {
       role: user.role,
+      email: user.email?.trim() || "",
       employee_name: user.employee_name,
       company_entity: user.company_entity,
       is_active: user.is_active,
@@ -112,8 +119,9 @@ onMounted(load);
       </div>
       <form class="grid gap-3 lg:grid-cols-6" @submit.prevent="create">
         <input v-model="newUser.username" class="field-input" placeholder="用户名" required />
+        <input v-model="newUser.email" class="field-input" placeholder="企业邮箱" required type="email" />
         <input v-model="newUser.employee_name" class="field-input" placeholder="员工姓名" required />
-        <select v-model="newUser.company_entity" class="field-input lg:col-span-2" required>
+        <select v-model="newUser.company_entity" class="field-input" required>
           <option value="" disabled>选择公司主体</option>
           <option v-for="company in COMPANY_ENTITIES" :key="company" :value="company">{{ company }}</option>
         </select>
@@ -121,7 +129,15 @@ onMounted(load);
           <option value="employee">员工</option>
           <option value="admin">管理员</option>
         </select>
-        <input v-model="newUser.password" autocomplete="new-password" class="field-input" placeholder="初始密码" required type="password" />
+        <input
+          v-if="authConfig?.legacy_enabled"
+          v-model="newUser.password"
+          autocomplete="new-password"
+          class="field-input"
+          placeholder="初始密码"
+          required
+          type="password"
+        />
         <div class="lg:col-span-6">
           <button class="primary-button" type="submit" :disabled="saving">
             <UserPlus class="h-4 w-4" />
@@ -152,17 +168,22 @@ onMounted(load);
           <thead class="bg-slate-50 text-xs font-medium uppercase tracking-normal text-slate-500">
             <tr>
               <th class="px-5 py-3">账号</th>
+              <th class="px-5 py-3">企业邮箱</th>
               <th class="px-5 py-3">姓名</th>
               <th class="px-5 py-3">角色</th>
               <th class="px-5 py-3">绑定企业抬头</th>
               <th class="px-5 py-3">状态</th>
-              <th class="px-5 py-3">重置密码</th>
+              <th v-if="authConfig?.legacy_enabled" class="px-5 py-3">重置密码</th>
               <th class="px-5 py-3">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 bg-white">
             <tr v-for="user in users" :key="user.id" class="align-top hover:bg-slate-50/70">
               <td class="whitespace-nowrap px-5 py-4 font-medium text-slate-900">{{ user.username }}</td>
+              <td v-if="authConfig?.legacy_enabled" class="px-5 py-4">
+                <input v-model="user.email" class="field-input min-w-56" placeholder="name@mentitrek.com" type="email" />
+                <p v-if="user.identity_id" class="mt-1 text-xs text-teal-700">已绑定统一身份</p>
+              </td>
               <td class="px-5 py-4">
                 <input v-model="user.employee_name" class="field-input min-w-36" />
               </td>

@@ -4,7 +4,8 @@
 
 ### module relationship
 
-- `users`：真实员工身份、权限角色和登录密码哈希；员工可通过 `/api/me/password` 修改自己的密码。
+- `users`：JetBao 员工档案与业务权限；`email` 预登记企业邮箱，首次统一登录后绑定稳定的 `identity_id`。公司主体和 `admin/employee` 角色只由 JetBao 管理。
+- `mentti.work`：统一身份认证中心，通过企业邮箱 OTP 验证员工身份；JetBao 使用短效、单次授权码兑换身份，不共享 MentiHub Cookie、JWT 或用户数据库。
 - `company_entities`：系统允许的三个公司主体为 `上海山途远智信息科技有限公司`、`山途远智（上海）企业服务有限公司`、`上海山途远智企业咨询有限公司`；用户创建、用户更新和 bootstrap 管理员都必须使用其中之一。
 - `SEED_DEMO_USERS` 默认关闭；真实部署通过 `BOOTSTRAP_ADMIN_*` 在空用户表时创建第一个管理员，不再按固定用户名自动提权。
 - `expenses`：花费项目统一事实表，包含 `pending`、`matched` 和 `reviewed` 三种状态。
@@ -39,6 +40,8 @@
 16. 本地子路径部署：浏览器访问 `/bx/` 时，主机 Nginx 去掉 `/bx/` 前缀后转发静态页面到前端容器；浏览器访问 `/bx/api/*` 时转发到后端容器的 `/api/*`。
 17. 生产域名部署：`jetbao.mentti.work` 由宿主机 Nginx 终止 HTTPS，并转发到只监听 `127.0.0.1:18080` 的前端容器；前端容器把 `/api/*` 转发给 Compose 内部的后端服务。
 18. 自动发布：PR 只验证；`main` 的成功流水线发布不可变镜像并写入当前 commit SHA，服务器拉取镜像、健康检查通过后完成切换。
+19. 统一登录：JetBao 生成随机 `state` 后跳转 MentiHub；MentiHub 验证企业邮箱并返回一次性授权码；JetBao 后端兑换 `sub/email`，只允许本地已预登记且启用的员工进入，并通过 host-only HttpOnly Cookie 建立 12 小时会话。
+20. 登录迁移：`AUTH_MODE=hybrid` 时保留旧用户名密码入口供管理员补齐企业邮箱；全部员工绑定后切换 `AUTH_MODE=sso`，密码登录和修改密码接口随即关闭。
 
 ### status flow
 

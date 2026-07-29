@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from "vue";
-import { Building2, KeyRound, Loader2, UserRound } from "lucide-vue-next";
+import { Building2, KeyRound, Loader2, Mail, UserRound } from "lucide-vue-next";
 import { changePassword } from "../services/api";
 import type { User } from "../types";
 
@@ -46,7 +46,7 @@ async function submitPasswordChange() {
   <div class="mx-auto max-w-3xl space-y-6">
     <div>
       <h1 class="page-title">个人设置</h1>
-      <p class="muted mt-1">查看账号信息并修改登录密码。</p>
+      <p class="muted mt-1">查看企业身份与报销账号信息。</p>
     </div>
 
     <section class="tool-panel rounded-lg p-5">
@@ -70,6 +70,15 @@ async function submitPasswordChange() {
             <p class="mt-0.5 text-sm font-medium text-ink">@{{ user.username }}</p>
           </div>
         </div>
+        <div v-if="user.email" class="flex items-start gap-3">
+          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-500">
+            <Mail class="h-4 w-4" />
+          </div>
+          <div>
+            <p class="text-xs text-slate-500">企业邮箱</p>
+            <p class="mt-0.5 text-sm font-medium text-ink">{{ user.email }}</p>
+          </div>
+        </div>
         <div class="flex items-start gap-3">
           <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-500">
             <Building2 class="h-4 w-4" />
@@ -82,7 +91,7 @@ async function submitPasswordChange() {
       </div>
     </section>
 
-    <section class="tool-panel rounded-lg p-5">
+    <section v-if="!user.email" class="tool-panel rounded-lg p-5">
       <div class="flex items-center gap-2">
         <KeyRound class="h-4 w-4 text-teal-700" />
         <h2 class="section-title">修改密码</h2>

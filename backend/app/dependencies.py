@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 
 from app.database import one
 from app.security import parse_token
@@ -20,10 +20,14 @@ def get_settings(request: Request):
 def get_current_user(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
+    session_cookie: Annotated[str | None, Cookie(alias="jetbao_session")] = None,
 ) -> sqlite3.Row:
-    if not authorization or not authorization.startswith("Bearer "):
+    token = session_cookie
+    if token is None and request.app.state.settings.auth_mode != "sso":
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization.removeprefix("Bearer ").strip()
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
-    token = authorization.removeprefix("Bearer ").strip()
     payload = parse_token(token, request.app.state.settings.secret_key)
     if payload is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已失效")

@@ -6,6 +6,14 @@ services:
     restart: unless-stopped
     environment:
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      AUTH_MODE: ${AUTH_MODE:-legacy}
+      SSO_AUTHORIZE_URL: ${SSO_AUTHORIZE_URL:-https://mentti.work/sso/authorize}
+      SSO_TOKEN_URL: ${SSO_TOKEN_URL:-https://mentti.work/api/sso/token}
+      SSO_CLIENT_ID: ${SSO_CLIENT_ID:-jetbao}
+      SSO_CLIENT_SECRET: ${SSO_CLIENT_SECRET:-}
+      SSO_REDIRECT_URI: ${SSO_REDIRECT_URI:-https://jetbao.mentti.work/api/auth/sso/callback}
+      SSO_LOGOUT_URL: ${SSO_LOGOUT_URL:-https://mentti.work/api/auth/logout}
+      SSO_COOKIE_SECURE: ${SSO_COOKIE_SECURE:-true}
       DATA_DIR: /data
       UPLOAD_DIR: /data/uploads
       TENCENT_SECRET_ID: ${TENCENT_SECRET_ID:-}

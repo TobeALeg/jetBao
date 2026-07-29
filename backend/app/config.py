@@ -31,6 +31,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class BootstrapAdmin:
     username: str
@@ -42,6 +49,14 @@ class BootstrapAdmin:
 @dataclass(frozen=True)
 class Settings:
     secret_key: str
+    auth_mode: str
+    sso_authorize_url: str
+    sso_token_url: str
+    sso_client_id: str
+    sso_client_secret: str
+    sso_redirect_uri: str
+    sso_cookie_secure: bool
+    sso_logout_url: str
     data_dir: Path
     upload_dir: Path
     database_path: Path
@@ -63,8 +78,24 @@ class Settings:
         data_dir = _resolve_env_path(os.getenv("DATA_DIR"), backend_dir / "data", project_dir)
         upload_dir = _resolve_env_path(os.getenv("UPLOAD_DIR"), data_dir / "uploads", project_dir)
         bootstrap_admin = _bootstrap_admin_from_env()
+        auth_mode = os.getenv("AUTH_MODE", "legacy").strip().lower()
+        if auth_mode not in {"legacy", "hybrid", "sso"}:
+            raise ValueError("AUTH_MODE 必须是 legacy、hybrid 或 sso")
+        sso_settings = {
+            "sso_authorize_url": os.getenv("SSO_AUTHORIZE_URL", "").strip(),
+            "sso_token_url": os.getenv("SSO_TOKEN_URL", "").strip(),
+            "sso_client_id": os.getenv("SSO_CLIENT_ID", "").strip(),
+            "sso_client_secret": os.getenv("SSO_CLIENT_SECRET", ""),
+            "sso_redirect_uri": os.getenv("SSO_REDIRECT_URI", "").strip(),
+        }
+        if auth_mode in {"hybrid", "sso"} and not all(sso_settings.values()):
+            raise ValueError("启用统一登录时必须完整配置 SSO_AUTHORIZE_URL、SSO_TOKEN_URL、SSO_CLIENT_ID、SSO_CLIENT_SECRET 和 SSO_REDIRECT_URI")
         return cls(
             secret_key=os.getenv("SECRET_KEY", "dev-secret-change-me"),
+            auth_mode=auth_mode,
+            **sso_settings,
+            sso_cookie_secure=_env_bool("SSO_COOKIE_SECURE", True),
+            sso_logout_url=os.getenv("SSO_LOGOUT_URL", "https://mentti.work/api/auth/logout").strip(),
             data_dir=data_dir,
             upload_dir=upload_dir,
             database_path=data_dir / "jetbao.sqlite3",

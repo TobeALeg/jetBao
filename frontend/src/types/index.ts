@@ -9,6 +9,7 @@ export type ExpenseStatus = "pending" | "matched" | "reviewed";
 export interface User {
   id: number;
   username: string;
+  email?: string | null;
   role: Role;
   employee_name: string;
   company_entity: string;
@@ -212,6 +213,8 @@ export interface ExportPreview {
 export interface AdminUser {
   id: number;
   username: string;
+  email?: string | null;
+  identity_id?: string | null;
   role: Role;
   employee_name: string;
   company_entity: string;
@@ -221,13 +224,15 @@ export interface AdminUser {
 
 export interface AdminUserCreatePayload {
   username: string;
-  password: string;
+  email?: string;
+  password?: string;
   role: Role;
   employee_name: string;
   company_entity: string;
 }
 
 export interface AdminUserUpdatePayload {
+  email?: string;
   password?: string;
   role?: Role;
   employee_name?: string;
