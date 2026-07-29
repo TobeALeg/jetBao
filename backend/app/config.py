@@ -55,6 +55,7 @@ class Settings:
     sso_client_id: str
     sso_client_secret: str
     sso_redirect_uri: str
+    sso_email_domain: str
     sso_cookie_secure: bool
     sso_logout_url: str
     data_dir: Path
@@ -96,6 +97,7 @@ class Settings:
             **sso_settings,
             sso_cookie_secure=_env_bool("SSO_COOKIE_SECURE", True),
             sso_logout_url=os.getenv("SSO_LOGOUT_URL", "https://mentti.work/api/auth/logout").strip(),
+            sso_email_domain=os.getenv("SSO_EMAIL_DOMAIN", "mentitrek.com").strip().lower(),
             data_dir=data_dir,
             upload_dir=upload_dir,
             database_path=data_dir / "jetbao.sqlite3",

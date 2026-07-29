@@ -88,6 +88,7 @@ docker compose up -d --build
 - `AUTH_MODE`：`legacy`、`hybrid` 或 `sso`；生产迁移完成后使用 `sso`。
 - `SSO_AUTHORIZE_URL` / `SSO_TOKEN_URL`：MentiHub 授权与后端兑换地址。
 - `SSO_CLIENT_ID` / `SSO_CLIENT_SECRET` / `SSO_REDIRECT_URI`：JetBao 在 MentiHub 登记的客户端配置；两端客户端密钥必须一致且不能提交到 Git。
+- `SSO_EMAIL_DOMAIN`：允许预登记的企业邮箱域名，当前为 `mentitrek.com`。
 - `SSO_LOGOUT_URL`：统一退出入口。
 - `SSO_COOKIE_SECURE`：生产 HTTPS 必须为 `true`。
 - `DATA_DIR`：SQLite 数据和附件目录。

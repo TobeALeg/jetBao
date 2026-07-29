@@ -19,7 +19,7 @@ def make_client(
     monkeypatch,
     seed_demo_users: str = "true",
     bootstrap_admin: dict[str, str] | None = None,
-    auth_mode: str = "hybrid",
+    auth_mode: str = "legacy",
 ) -> TestClient:
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "data" / "uploads"))
@@ -33,6 +33,7 @@ def make_client(
     monkeypatch.setenv("SSO_CLIENT_ID", "jetbao")
     monkeypatch.setenv("SSO_CLIENT_SECRET", "test-client-secret")
     monkeypatch.setenv("SSO_REDIRECT_URI", "https://jetbao.mentti.work/api/auth/sso/callback")
+    monkeypatch.setenv("SSO_EMAIL_DOMAIN", "mentitrek.com")
     monkeypatch.setenv("SSO_COOKIE_SECURE", "false")
     if bootstrap_admin:
         for key, value in bootstrap_admin.items():
@@ -258,6 +259,12 @@ def test_sso_login_uses_preprovisioned_email_and_creates_cookie_session(tmp_path
     with client.app.state.db.connect() as connection:
         user = connection.execute("SELECT identity_id FROM users WHERE username = 'Dandi'").fetchone()
     assert user["identity_id"] == "mentti-user-2"
+    email_change = client.patch(
+        "/api/admin/users/2",
+        json={"email": "other@mentitrek.com"},
+    )
+    assert email_change.status_code == 400
+    assert "已绑定" in email_change.json()["detail"]
 
 
 def test_sso_login_rejects_enterprise_email_without_jetbao_access(tmp_path, monkeypatch):
@@ -1579,6 +1586,36 @@ def test_sso_admin_can_preprovision_employee_without_local_password(tmp_path, mo
     assert create.status_code == 200
     assert create.json()["email"] == "new.employee@mentitrek.com"
     assert create.json()["identity_id"] is None
+
+
+def test_sso_admin_must_preprovision_a_corporate_email(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch, auth_mode="sso")
+    from app.security import create_token
+
+    client.cookies.set("jetbao_session", create_token(1, "test-secret"))
+    missing = client.post(
+        "/api/admin/users",
+        json={
+            "username": "missing-email",
+            "role": "employee",
+            "employee_name": "Missing Email",
+            "company_entity": "上海山途远智信息科技有限公司",
+        },
+    )
+    external = client.post(
+        "/api/admin/users",
+        json={
+            "username": "external-email",
+            "email": "person@example.com",
+            "role": "employee",
+            "employee_name": "External Email",
+            "company_entity": "上海山途远智信息科技有限公司",
+        },
+    )
+
+    assert missing.status_code == 400
+    assert external.status_code == 400
+    assert "企业邮箱" in external.json()["detail"]
 
 
 def test_admin_user_company_entity_must_be_allowed(tmp_path, monkeypatch):

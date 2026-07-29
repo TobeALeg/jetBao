@@ -12,6 +12,7 @@ services:
       SSO_CLIENT_ID: ${SSO_CLIENT_ID:-jetbao}
       SSO_CLIENT_SECRET: ${SSO_CLIENT_SECRET:-}
       SSO_REDIRECT_URI: ${SSO_REDIRECT_URI:-https://jetbao.mentti.work/api/auth/sso/callback}
+      SSO_EMAIL_DOMAIN: ${SSO_EMAIL_DOMAIN:-mentitrek.com}
       SSO_LOGOUT_URL: ${SSO_LOGOUT_URL:-https://mentti.work/api/auth/logout}
       SSO_COOKIE_SECURE: ${SSO_COOKIE_SECURE:-true}
       DATA_DIR: /data

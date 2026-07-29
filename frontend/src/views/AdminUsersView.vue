@@ -180,9 +180,15 @@ onMounted(load);
           <tbody class="divide-y divide-slate-100 bg-white">
             <tr v-for="user in users" :key="user.id" class="align-top hover:bg-slate-50/70">
               <td class="whitespace-nowrap px-5 py-4 font-medium text-slate-900">{{ user.username }}</td>
-              <td v-if="authConfig?.legacy_enabled" class="px-5 py-4">
-                <input v-model="user.email" class="field-input min-w-56" placeholder="name@mentitrek.com" type="email" />
-                <p v-if="user.identity_id" class="mt-1 text-xs text-teal-700">已绑定统一身份</p>
+              <td class="px-5 py-4">
+                <input
+                  v-model="user.email"
+                  class="field-input min-w-56"
+                  :disabled="Boolean(user.identity_id)"
+                  placeholder="name@mentitrek.com"
+                  type="email"
+                />
+                <p v-if="user.identity_id" class="mt-1 text-xs text-teal-700">已绑定统一身份，不可直接修改</p>
               </td>
               <td class="px-5 py-4">
                 <input v-model="user.employee_name" class="field-input min-w-36" />
@@ -204,7 +210,7 @@ onMounted(load);
                   启用
                 </label>
               </td>
-              <td class="px-5 py-4">
+              <td v-if="authConfig?.legacy_enabled" class="px-5 py-4">
                 <input v-model="editingPasswords[user.id]" autocomplete="new-password" class="field-input min-w-36" placeholder="留空不改" type="password" />
               </td>
               <td class="whitespace-nowrap px-5 py-4">

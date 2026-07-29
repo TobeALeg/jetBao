@@ -27,6 +27,19 @@ def _validate_company_entity(company_entity: str) -> str:
     return company
 
 
+def _normalize_enterprise_email(email: str | None, expected_domain: str) -> str | None:
+    normalized = email.strip().lower() if email else None
+    if not normalized:
+        return None
+    local_part, separator, domain = normalized.rpartition("@")
+    if not separator or not local_part or domain != expected_domain:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"企业邮箱必须使用 @{expected_domain}",
+        )
+    return normalized
+
+
 def _ledger_query(
     month: str | None,
     company_entity: str | None,
@@ -324,7 +337,9 @@ def list_users(request: Request, admin=Depends(require_admin)) -> list[AdminUser
 @router.post("/users", response_model=AdminUserResponse)
 def create_user(payload: AdminUserCreateRequest, request: Request, admin=Depends(require_admin)) -> AdminUserResponse:
     company_entity = _validate_company_entity(payload.company_entity)
-    email = payload.email.strip().lower() if payload.email else None
+    email = _normalize_enterprise_email(payload.email, request.app.state.settings.sso_email_domain)
+    if request.app.state.settings.auth_mode in {"hybrid", "sso"} and not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="启用统一登录后必须填写企业邮箱")
     if request.app.state.settings.auth_mode != "sso" and not payload.password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="迁移期间创建账号仍需设置初始密码")
     password = payload.password or secrets.token_urlsafe(32)
@@ -371,8 +386,17 @@ def update_user(
         fields: list[str] = []
         params: list[object] = []
         if payload.email is not None:
+            normalized_email = _normalize_enterprise_email(
+                payload.email,
+                request.app.state.settings.sso_email_domain,
+            )
+            if row["identity_id"] and normalized_email != row["email"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="企业邮箱已绑定统一身份，不能直接修改",
+                )
             fields.append("email = ?")
-            params.append(payload.email.strip().lower() or None)
+            params.append(normalized_email)
         if payload.password:
             fields.append("password_hash = ?")
             params.append(hash_password(payload.password))
