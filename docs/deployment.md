@@ -62,6 +62,10 @@ bootstrap 管理员只在数据库为空时创建。
 - `DEPLOY_USER`：服务器专用发布用户
 - `DEPLOY_SSH_KEY`：发布用户私钥
 - `DEPLOY_KNOWN_HOSTS`：`ssh-keyscan -H 47.242.14.249` 的固定输出
+- `SSO_CLIENT_SECRET`：与 MentiHub 仓库 `JETBAO_SSO_CLIENT_SECRET` 完全相同的强随机密钥
+- Environment variable `AUTH_MODE`：首次设为 `hybrid`，真实统一登录验证后改为 `sso`
+
+流水线会把 SSO 配置写入服务器 `/opt/jetbao/app/sso.env`，权限为 `600`，并在 Compose 启动时作为后置 env 文件覆盖旧配置；密钥不会写入仓库或 Actions 日志。
 
 若 GHCR 包不是公开包，需在服务器首次部署时执行一次 `docker login ghcr.io`，使用只具备 `read:packages` 权限的 token。
 

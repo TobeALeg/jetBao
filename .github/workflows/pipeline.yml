@@ -141,15 +141,31 @@ jobs:
         env:
           IMAGE_PREFIX: ${{ needs.publish.outputs.image_prefix }}
           IMAGE_TAG: ${{ github.sha }}
+          AUTH_MODE: ${{ vars.AUTH_MODE }}
+          SSO_CLIENT_SECRET: ${{ secrets.SSO_CLIENT_SECRET }}
         run: |
+          test -n "$SSO_CLIENT_SECRET"
+          umask 077
           printf 'IMAGE_PREFIX=%s\nIMAGE_TAG=%s\n' "$IMAGE_PREFIX" "$IMAGE_TAG" > release.env
+          printf '%s\n' \
+            "AUTH_MODE=${AUTH_MODE:-hybrid}" \
+            'SSO_AUTHORIZE_URL=https://mentti.work/sso/authorize' \
+            'SSO_TOKEN_URL=https://mentti.work/api/sso/token' \
+            'SSO_CLIENT_ID=jetbao' \
+            "SSO_CLIENT_SECRET=$SSO_CLIENT_SECRET" \
+            'SSO_REDIRECT_URI=https://jetbao.mentti.work/api/auth/sso/callback' \
+            'SSO_EMAIL_DOMAIN=mentitrek.com' \
+            'SSO_LOGOUT_URL=https://mentti.work/api/auth/logout' \
+            'SSO_COOKIE_SECURE=true' \
+            > sso.env
       - name: Upload deployment files
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           ssh "$DEPLOY_USER@$DEPLOY_HOST" 'mkdir -p /opt/jetbao/app'
-          scp compose.production.yml release.env "$DEPLOY_USER@$DEPLOY_HOST:/opt/jetbao/app/"
+          scp compose.production.yml release.env sso.env "$DEPLOY_USER@$DEPLOY_HOST:/opt/jetbao/app/"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" 'chmod 600 /opt/jetbao/app/sso.env'
       - name: Pull and restart
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -165,11 +181,13 @@ jobs:
             test -f .env
             docker compose \
               --env-file .env \
+              --env-file app/sso.env \
               --env-file app/release.env \
               -f app/compose.production.yml \
               pull
             docker compose \
               --env-file .env \
+              --env-file app/sso.env \
               --env-file app/release.env \
               -f app/compose.production.yml \
               up -d --remove-orphans --wait
@@ -179,3 +197,11 @@ jobs:
               -f app/compose.production.yml \
               ps
           '
+      - name: Verify public deployment
+        run: |
+          curl --fail --show-error --silent \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            https://jetbao.mentti.work/api/health
+          curl --fail --show-error --silent \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            https://jetbao.mentti.work/api/auth/config
