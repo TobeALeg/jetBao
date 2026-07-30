@@ -23,6 +23,12 @@ def create_app() -> FastAPI:
     app = FastAPI(title="JetBao Reimbursement API", lifespan=lifespan)
     app.state.settings = settings
     app.state.db = Database(settings.database_path)
+    app.state.sso_client = auth.SsoClient(
+        settings.sso_token_url,
+        settings.sso_client_id,
+        settings.sso_client_secret,
+        settings.sso_redirect_uri,
+    )
 
     app.add_middleware(
         CORSMiddleware,

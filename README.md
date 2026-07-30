@@ -39,6 +39,8 @@ BOOTSTRAP_ADMIN_COMPANY_ENTITY=上海山途远智信息科技有限公司
 
 bootstrap 管理员只会在用户表为空时创建；已有用户后再次启动不会覆盖账号。
 
+生产环境完成初始化后使用 `mentti.work` 企业邮箱统一登录。JetBao 只保存员工档案、公司主体和报销角色，不保存或校验企业邮箱密码。旧账号迁移请先使用 `AUTH_MODE=hybrid` 补齐员工邮箱，验证完成后切换为 `AUTH_MODE=sso`。
+
 当前公司主体固定为三个，只能选择：
 
 - `上海山途远智信息科技有限公司`
@@ -83,6 +85,12 @@ docker compose up -d --build
 可以复制 `.env.example` 为 `.env` 后按需修改。
 
 - `SECRET_KEY`：后端 token 签名密钥，生产环境必须改。
+- `AUTH_MODE`：`legacy`、`hybrid` 或 `sso`；生产迁移完成后使用 `sso`。
+- `SSO_AUTHORIZE_URL` / `SSO_TOKEN_URL`：MentiHub 授权与后端兑换地址。
+- `SSO_CLIENT_ID` / `SSO_CLIENT_SECRET` / `SSO_REDIRECT_URI`：JetBao 在 MentiHub 登记的客户端配置；两端客户端密钥必须一致且不能提交到 Git。
+- `SSO_EMAIL_DOMAIN`：允许预登记的企业邮箱域名，当前为 `mentitrek.com`。
+- `SSO_LOGOUT_URL`：统一退出入口。
+- `SSO_COOKIE_SECURE`：生产 HTTPS 必须为 `true`。
 - `DATA_DIR`：SQLite 数据和附件目录。
 - `UPLOAD_DIR`：附件上传目录。
 - `TENCENT_SECRET_ID` / `TENCENT_SECRET_KEY`：腾讯云访问密钥。未配置时，系统允许手动填写。

@@ -8,7 +8,7 @@ import HistoryView from "./views/HistoryView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import GuideView from "./views/GuideView.vue";
 import AdminUsersView from "./views/AdminUsersView.vue";
-import { clearToken, getMe, getToken, listExpenses, markGuideSeen } from "./services/api";
+import { clearToken, getMe, listExpenses, logout, markGuideSeen } from "./services/api";
 import type { Expense, User, ViewKey } from "./types";
 
 const ADMIN_ONLY_VIEWS: ViewKey[] = ["history", "admin-users"];
@@ -63,10 +63,6 @@ function ensureAllowedView() {
 }
 
 async function restoreSession() {
-  if (!getToken()) {
-    loadingSession.value = false;
-    return;
-  }
   try {
     user.value = await getMe();
     ensureAllowedView();
@@ -87,7 +83,15 @@ function handleLogin(nextUser: User) {
   maybeShowGuideWelcome();
 }
 
-function handleLogout() {
+async function handleLogout() {
+  try {
+    const result = await logout();
+    clearToken();
+    window.location.assign(result.logout_url);
+    return;
+  } catch {
+    // Even if central logout is unavailable, clear the local UI state.
+  }
   clearToken();
   user.value = null;
   currentView.value = "monthly";

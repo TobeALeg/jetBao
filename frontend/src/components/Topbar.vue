@@ -20,7 +20,7 @@ defineEmits<{
     <div class="flex items-center gap-3">
       <div class="hidden text-right sm:block">
         <div class="text-sm font-medium text-slate-800">{{ user.employee_name }}</div>
-        <div class="text-xs text-slate-500">@{{ user.username }}</div>
+        <div class="text-xs text-slate-500">{{ user.email || `@${user.username}` }}</div>
       </div>
       <button class="secondary-button h-9 px-3" type="button" @click="$emit('logout')">
         <LogOut class="h-4 w-4" />

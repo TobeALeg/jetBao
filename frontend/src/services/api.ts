@@ -22,6 +22,12 @@ import type {
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 const TOKEN_KEY = "jetbao_token";
 
+export interface AuthConfig {
+  mode: "legacy" | "hybrid" | "sso";
+  sso_enabled: boolean;
+  legacy_enabled: boolean;
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -53,7 +59,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers
+    headers,
+    credentials: "same-origin"
   });
 
   if (!response.ok) {
@@ -75,6 +82,18 @@ export async function login(username: string, password: string): Promise<{ token
     method: "POST",
     body: JSON.stringify({ username, password })
   });
+}
+
+export async function getAuthConfig(): Promise<AuthConfig> {
+  return request("/auth/config");
+}
+
+export function getSsoLoginUrl(): string {
+  return `${API_BASE}/auth/sso/start`;
+}
+
+export async function logout(): Promise<{ logout_url: string }> {
+  return request("/auth/logout", { method: "POST" });
 }
 
 export async function getMe(): Promise<User> {
@@ -243,7 +262,8 @@ export async function uploadAttachments(files: File[]): Promise<Attachment[]> {
 export async function getAttachmentObjectUrl(id: number): Promise<{ url: string; contentType: string }> {
   const token = getToken();
   const response = await fetch(`${API_BASE}/attachments/${id}/content`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "same-origin"
   });
   if (!response.ok) {
     throw new ApiError("附件预览失败", response.status);
@@ -280,7 +300,8 @@ export async function downloadExport(filters: Record<string, string>, periodLabe
   });
   const token = getToken();
   const response = await fetch(`${API_BASE}/admin/export.xlsx?${params.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "same-origin"
   });
   if (!response.ok) {
     throw new ApiError("导出失败", response.status);
@@ -301,7 +322,8 @@ export async function downloadExportPackage(filters: Record<string, string>, per
   });
   const token = getToken();
   const response = await fetch(`${API_BASE}/admin/export-package.zip?${params.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "same-origin"
   });
   if (!response.ok) {
     throw new ApiError("导出失败", response.status);

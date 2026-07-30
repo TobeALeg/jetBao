@@ -131,9 +131,9 @@ function scrollTo(id: string) {
           </div>
           <div class="guide-card space-y-4">
             <ol class="guide-steps">
-              <li>使用管理员分配的<strong>用户名</strong>和<strong>密码</strong>登录。</li>
+              <li>使用公司的<strong>企业邮箱</strong>在统一登录页接收验证码。</li>
               <li>顶部显示你的<strong>公司主体</strong>、<strong>姓名</strong>与<strong>角色</strong>（员工 / 管理员）。</li>
-              <li>在「个人设置」中可修改登录密码；公司主体由管理员维护，个人不可修改。</li>
+              <li>JetBao 权限和公司主体由管理员维护；企业邮箱只用于确认身份。</li>
             </ol>
             <p class="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               公司主体必须为系统允许的三家主体之一，发票购买方需与报销所属主体匹配（或按提示人工确认）。

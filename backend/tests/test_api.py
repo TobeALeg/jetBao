@@ -6,6 +6,7 @@ import sys
 import zipfile
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
@@ -18,6 +19,7 @@ def make_client(
     monkeypatch,
     seed_demo_users: str = "true",
     bootstrap_admin: dict[str, str] | None = None,
+    auth_mode: str = "legacy",
 ) -> TestClient:
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "data" / "uploads"))
@@ -25,6 +27,14 @@ def make_client(
     monkeypatch.setenv("SEED_DEMO_USERS", seed_demo_users)
     monkeypatch.setenv("TENCENT_SECRET_ID", "")
     monkeypatch.setenv("TENCENT_SECRET_KEY", "")
+    monkeypatch.setenv("AUTH_MODE", auth_mode)
+    monkeypatch.setenv("SSO_AUTHORIZE_URL", "https://mentti.work/sso/authorize")
+    monkeypatch.setenv("SSO_TOKEN_URL", "https://mentti.work/api/sso/token")
+    monkeypatch.setenv("SSO_CLIENT_ID", "jetbao")
+    monkeypatch.setenv("SSO_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv("SSO_REDIRECT_URI", "https://jetbao.mentti.work/api/auth/sso/callback")
+    monkeypatch.setenv("SSO_EMAIL_DOMAIN", "mentitrek.com")
+    monkeypatch.setenv("SSO_COOKIE_SECURE", "false")
     if bootstrap_admin:
         for key, value in bootstrap_admin.items():
             monkeypatch.setenv(key, value)
@@ -39,6 +49,23 @@ def auth_headers(client: TestClient, username: str, password: str) -> dict[str, 
     assert response.status_code == 200
     token = response.json()["token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+def provision_email(client: TestClient, username: str, email: str) -> None:
+    with client.app.state.db.connect() as connection:
+        connection.execute(
+            "UPDATE users SET email = ? WHERE username = ?",
+            (email, username),
+        )
+
+
+class StubSsoClient:
+    def __init__(self, identity: dict[str, str]):
+        self.identity = identity
+
+    def exchange_code(self, code: str) -> dict[str, str]:
+        assert code == "single-use-code"
+        return self.identity
 
 
 def upload_file(
@@ -194,6 +221,85 @@ def test_bootstrap_admin_creates_first_admin_without_demo_users(tmp_path, monkey
     assert me.status_code == 200
     assert me.json()["role"] == "admin"
     assert me.json()["employee_name"] == "Owner"
+
+
+def test_sso_login_uses_preprovisioned_email_and_creates_cookie_session(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch, auth_mode="sso")
+    provision_email(client, "Dandi", "dandi@mentitrek.com")
+    client.app.state.sso_client = StubSsoClient(
+        {"sub": "mentti-user-2", "email": "dandi@mentitrek.com"}
+    )
+
+    start = client.get("/api/auth/sso/start", follow_redirects=False)
+
+    assert start.status_code == 307
+    location = urlparse(start.headers["location"])
+    query = parse_qs(location.query)
+    assert f"{location.scheme}://{location.netloc}{location.path}" == "https://mentti.work/sso/authorize"
+    assert query == {
+        "client_id": ["jetbao"],
+        "redirect_uri": ["https://jetbao.mentti.work/api/auth/sso/callback"],
+        "state": [query["state"][0]],
+    }
+    assert start.cookies["jetbao_sso_state"] == query["state"][0]
+
+    callback = client.get(
+        "/api/auth/sso/callback",
+        params={"code": "single-use-code", "state": query["state"][0]},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/"
+    assert "HttpOnly" in callback.headers["set-cookie"]
+    me = client.get("/api/me")
+    assert me.status_code == 200
+    assert me.json()["email"] == "dandi@mentitrek.com"
+    assert me.json()["role"] == "admin"
+    with client.app.state.db.connect() as connection:
+        user = connection.execute("SELECT identity_id FROM users WHERE username = 'Dandi'").fetchone()
+    assert user["identity_id"] == "mentti-user-2"
+    email_change = client.patch(
+        "/api/admin/users/2",
+        json={"email": "other@mentitrek.com"},
+    )
+    assert email_change.status_code == 400
+    assert "已绑定" in email_change.json()["detail"]
+
+
+def test_sso_login_rejects_enterprise_email_without_jetbao_access(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch, auth_mode="sso")
+    client.app.state.sso_client = StubSsoClient(
+        {"sub": "mentti-new-user", "email": "new.employee@mentitrek.com"}
+    )
+    start = client.get("/api/auth/sso/start", follow_redirects=False)
+    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+
+    callback = client.get(
+        "/api/auth/sso/callback",
+        params={"code": "single-use-code", "state": state},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/?sso_error=")
+    assert client.get("/api/me").status_code == 401
+
+
+def test_sso_callback_rejects_invalid_state_before_code_exchange(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch, auth_mode="sso")
+    client.app.state.sso_client = StubSsoClient(
+        {"sub": "mentti-user-2", "email": "dandi@mentitrek.com"}
+    )
+    client.get("/api/auth/sso/start", follow_redirects=False)
+
+    callback = client.get(
+        "/api/auth/sso/callback",
+        params={"code": "single-use-code", "state": "tampered"},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 400
 
 
 def test_dandi_username_is_not_auto_promoted_on_restart(tmp_path, monkeypatch):
@@ -1427,6 +1533,7 @@ def test_admin_can_create_update_and_deactivate_user(tmp_path, monkeypatch):
         headers=admin,
         json={
             "username": "carol",
+            "email": "Carol@Mentitrek.com ",
             "password": "carol123",
             "role": "employee",
             "employee_name": "Carol Wang",
@@ -1434,14 +1541,20 @@ def test_admin_can_create_update_and_deactivate_user(tmp_path, monkeypatch):
         },
     )
     assert create.status_code == 200
+    assert create.json()["email"] == "carol@mentitrek.com"
     user_id = create.json()["id"]
 
     update = client.patch(
         f"/api/admin/users/{user_id}",
         headers=admin,
-        json={"company_entity": "山途远智（上海）企业服务有限公司", "password": "newpass123"},
+        json={
+            "email": "carol.wang@mentitrek.com",
+            "company_entity": "山途远智（上海）企业服务有限公司",
+            "password": "newpass123",
+        },
     )
     assert update.status_code == 200
+    assert update.json()["email"] == "carol.wang@mentitrek.com"
     assert update.json()["company_entity"] == "山途远智（上海）企业服务有限公司"
 
     carol = auth_headers(client, "carol", "newpass123")
@@ -1452,6 +1565,57 @@ def test_admin_can_create_update_and_deactivate_user(tmp_path, monkeypatch):
     assert deactivate.json()["is_active"] is False
     disabled_login = client.post("/api/auth/login", json={"username": "carol", "password": "newpass123"})
     assert disabled_login.status_code == 403
+
+
+def test_sso_admin_can_preprovision_employee_without_local_password(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch, auth_mode="sso")
+    from app.security import create_token
+
+    client.cookies.set("jetbao_session", create_token(1, "test-secret"))
+    create = client.post(
+        "/api/admin/users",
+        json={
+            "username": "new-employee",
+            "email": "new.employee@mentitrek.com",
+            "role": "employee",
+            "employee_name": "New Employee",
+            "company_entity": "上海山途远智信息科技有限公司",
+        },
+    )
+
+    assert create.status_code == 200
+    assert create.json()["email"] == "new.employee@mentitrek.com"
+    assert create.json()["identity_id"] is None
+
+
+def test_sso_admin_must_preprovision_a_corporate_email(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch, auth_mode="sso")
+    from app.security import create_token
+
+    client.cookies.set("jetbao_session", create_token(1, "test-secret"))
+    missing = client.post(
+        "/api/admin/users",
+        json={
+            "username": "missing-email",
+            "role": "employee",
+            "employee_name": "Missing Email",
+            "company_entity": "上海山途远智信息科技有限公司",
+        },
+    )
+    external = client.post(
+        "/api/admin/users",
+        json={
+            "username": "external-email",
+            "email": "person@example.com",
+            "role": "employee",
+            "employee_name": "External Email",
+            "company_entity": "上海山途远智信息科技有限公司",
+        },
+    )
+
+    assert missing.status_code == 400
+    assert external.status_code == 400
+    assert "企业邮箱" in external.json()["detail"]
 
 
 def test_admin_user_company_entity_must_be_allowed(tmp_path, monkeypatch):

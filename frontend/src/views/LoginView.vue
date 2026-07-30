@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { LogIn } from "lucide-vue-next";
-import { login, setToken } from "../services/api";
+import { onMounted, ref } from "vue";
+import { Building2, LogIn } from "lucide-vue-next";
+import { getAuthConfig, getSsoLoginUrl, login, setToken } from "../services/api";
+import type { AuthConfig } from "../services/api";
 import type { User } from "../types";
 
 const emit = defineEmits<{
@@ -12,6 +13,23 @@ const username = ref("");
 const password = ref("");
 const loading = ref(false);
 const error = ref("");
+const authConfig = ref<AuthConfig | null>(null);
+
+onMounted(async () => {
+  const reason = new URLSearchParams(window.location.search).get("sso_error");
+  if (reason === "access_not_provisioned") error.value = "企业身份验证成功，但尚未开通 JetBao 权限，请联系管理员。";
+  if (reason === "identity_mismatch") error.value = "该企业邮箱与已有员工身份不一致，请联系管理员。";
+  if (reason === "identity_exchange_failed") error.value = "统一登录暂时不可用，请稍后重试。";
+  try {
+    authConfig.value = await getAuthConfig();
+  } catch {
+    error.value ||= "无法读取登录配置";
+  }
+});
+
+function startSso() {
+  window.location.assign(getSsoLoginUrl());
+}
 
 async function submit() {
   loading.value = true;
@@ -63,9 +81,22 @@ async function submit() {
           </div>
 
           <h2 class="text-xl font-semibold tracking-normal text-ink">登录</h2>
-          <p class="muted mt-2">使用管理员或员工账号进入系统。</p>
+          <p class="muted mt-2">使用公司的统一企业邮箱身份进入系统。</p>
 
-          <form class="mt-8 space-y-5" @submit.prevent="submit">
+          <div v-if="authConfig?.sso_enabled" class="mt-8">
+            <button class="primary-button w-full" type="button" @click="startSso">
+              <Building2 class="h-4 w-4" />
+              使用企业邮箱登录
+            </button>
+          </div>
+
+          <div v-if="authConfig?.sso_enabled && authConfig?.legacy_enabled" class="my-6 flex items-center gap-3 text-xs text-slate-400">
+            <div class="h-px flex-1 bg-slate-200"></div>
+            迁移期间账号登录
+            <div class="h-px flex-1 bg-slate-200"></div>
+          </div>
+
+          <form v-if="authConfig?.legacy_enabled" :class="authConfig?.sso_enabled ? '' : 'mt-8'" class="space-y-5" @submit.prevent="submit">
             <div>
               <label class="field-label" for="username">账号</label>
               <input id="username" v-model="username" class="field-input mt-1" autocomplete="username" />
@@ -75,13 +106,12 @@ async function submit() {
               <input id="password" v-model="password" class="field-input mt-1" autocomplete="current-password" type="password" />
             </div>
 
-            <p v-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
-
             <button class="primary-button w-full" type="submit" :disabled="loading">
               <LogIn class="h-4 w-4" />
               {{ loading ? "正在登录..." : "登录系统" }}
             </button>
           </form>
+          <p v-if="error" class="mt-5 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
         </section>
       </div>
     </div>
