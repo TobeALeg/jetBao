@@ -147,7 +147,7 @@ cleanup() {
       "${COMPOSE_FILE}" \
       "${SSO_ENV_FILE}" \
       "${RELEASE_FILE}" \
-      up -d --remove-orphans --wait --wait-timeout 180 || true
+      up -d --remove-orphans --force-recreate --wait --wait-timeout 180 || true
   elif ((status != 0 && deployment_started == 1)); then
     echo "Deployment failed and no previous application release is available" >&2
   fi
