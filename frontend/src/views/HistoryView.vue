@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { ChevronDown, ChevronRight, Download, Eye, Search } from "lucide-vue-next";
+import { CheckCheck, ChevronDown, ChevronRight, Download, Eye, Search } from "lucide-vue-next";
 import AdminExpenseReviewModal from "../components/AdminExpenseReviewModal.vue";
 import {
   approveExpense,
+  approveAllExpenses,
   downloadExportPackage,
   listLedger,
   rejectExpense,
@@ -37,6 +38,9 @@ const success = ref("");
 const reviewRow = ref<LedgerRow | null>(null);
 const reviewOpen = ref(false);
 const exporting = ref(false);
+const approvingAll = ref(false);
+const latestSearchId = ref(0);
+const appliedQueryParams = ref<Record<string, string> | null>(null);
 
 const expandedMonths = ref(new Set<string>());
 const currentMonth = new Date().toISOString().slice(0, 7);
@@ -64,6 +68,10 @@ const ledgerQueryParams = computed(() => {
   }
   return params;
 });
+
+function queryKey(params: Record<string, string>): string {
+  return JSON.stringify(Object.entries(params).sort(([left], [right]) => left.localeCompare(right)));
+}
 
 const exportPeriodLabel = computed(() => {
   if (filterYear.value && filterMonthPart.value) return `${filterYear.value}-${filterMonthPart.value}`;
@@ -103,14 +111,23 @@ function formatMonthLabel(month: string): string {
 }
 
 const isAdmin = computed(() => props.user.role === "admin");
+const reviewableCount = computed(() => rows.value.filter((row) => row.status === "matched").length);
+const resultsAreCurrent = computed(
+  () => appliedQueryParams.value !== null && queryKey(appliedQueryParams.value) === queryKey(ledgerQueryParams.value)
+);
 
 async function search() {
   if (!isAdmin.value) return;
+  const searchId = ++latestSearchId.value;
+  const querySnapshot = { ...ledgerQueryParams.value };
   loading.value = true;
   error.value = "";
   success.value = "";
   try {
-    rows.value = await listLedger(ledgerQueryParams.value);
+    const result = await listLedger(querySnapshot);
+    if (searchId !== latestSearchId.value) return;
+    rows.value = result;
+    appliedQueryParams.value = querySnapshot;
     const selectedMonth =
       filterYear.value && filterMonthPart.value ? `${filterYear.value}-${filterMonthPart.value}` : "";
     if (selectedMonth) {
@@ -121,9 +138,10 @@ async function search() {
       expandedMonths.value = new Set(monthGroups.value.map(([month]) => month).filter((month) => month >= currentMonth));
     }
   } catch (err) {
+    if (searchId !== latestSearchId.value) return;
     error.value = err instanceof Error ? err.message : "加载失败";
   } finally {
-    loading.value = false;
+    if (searchId === latestSearchId.value) loading.value = false;
   }
 }
 
@@ -168,6 +186,27 @@ async function handleApprove(row: LedgerRow) {
     success.value = "已审核通过";
   } catch (err) {
     error.value = err instanceof Error ? err.message : "操作失败";
+  }
+}
+
+async function handleApproveAll() {
+  if (approvingAll.value || !reviewableCount.value || !resultsAreCurrent.value || !appliedQueryParams.value) return;
+  const querySnapshot = { ...appliedQueryParams.value };
+  if (!window.confirm(`确认通过当前筛选结果中的 ${reviewableCount.value} 笔待审核报销？`)) return;
+  approvingAll.value = true;
+  error.value = "";
+  success.value = "";
+  try {
+    const result = await approveAllExpenses(querySnapshot);
+    await search();
+    emit("expensesChanged");
+    success.value = result.approved_count
+      ? `已通过 ${result.approved_count} 笔报销`
+      : "没有仍处于待审核状态的报销";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "批量审核失败";
+  } finally {
+    approvingAll.value = false;
   }
 }
 
@@ -234,7 +273,7 @@ async function handleExport() {
       params.company_entity = filters.value.company_entity;
     }
     await downloadExportPackage(params, exportPeriodLabel.value);
-    success.value = "导出成功：包含四页 Excel 与按板块/人员整理的发票压缩包";
+    success.value = "导出成功：包含四页 Excel 与按公司/人员/报销类别整理的发票压缩包";
   } catch (err) {
     error.value = err instanceof Error ? err.message : "导出失败";
   } finally {
@@ -254,15 +293,25 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
         <h1 class="page-title">报销记录总览</h1>
         <p class="muted mt-1">{{ isAdmin ? "所有人的报销记录，可按年份、月份筛选并归档查看。" : "查看你的历史报销记录。" }}</p>
       </div>
-      <button
-        v-if="isAdmin"
-        class="secondary-button h-10 shrink-0"
-        :disabled="exporting"
-        type="button"
-        @click="handleExport"
-      >
-        <Download class="h-4 w-4" /> {{ exporting ? "导出中..." : "导出" }}
-      </button>
+      <div v-if="isAdmin" class="flex flex-wrap items-center gap-2">
+        <button
+          class="primary-button h-10 shrink-0"
+          :disabled="approvingAll || loading || !resultsAreCurrent || !reviewableCount"
+          type="button"
+          @click="handleApproveAll"
+        >
+          <CheckCheck class="h-4 w-4" />
+          {{ approvingAll ? "通过中..." : `一键通过（${reviewableCount}）` }}
+        </button>
+        <button
+          class="secondary-button h-10 shrink-0"
+          :disabled="exporting"
+          type="button"
+          @click="handleExport"
+        >
+          <Download class="h-4 w-4" /> {{ exporting ? "导出中..." : "导出" }}
+        </button>
+      </div>
     </div>
 
     <!-- Filters -->

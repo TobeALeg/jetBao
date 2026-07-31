@@ -5,6 +5,7 @@ import type {
   Attachment,
   DraftExpenseCompletePayload,
   Expense,
+  ExpenseBulkApproveResult,
   ExpenseReviewDetail,
   ExpenseAllocationBatchCreatePayload,
   ExpenseAllocationCreatePayload,
@@ -217,6 +218,17 @@ export async function getAdminExpenseReview(id: number): Promise<ExpenseReviewDe
 
 export async function approveExpense(id: number): Promise<Expense> {
   return request(`/admin/expenses/${id}/approve`, {
+    method: "POST"
+  });
+}
+
+export async function approveAllExpenses(filters: Record<string, string>): Promise<ExpenseBulkApproveResult> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const query = params.toString();
+  return request(`/admin/expense-reviews/approve-all${query ? `?${query}` : ""}`, {
     method: "POST"
   });
 }

@@ -210,6 +210,10 @@ export interface ExportPreview {
   pending_count: number;
 }
 
+export interface ExpenseBulkApproveResult {
+  approved_count: number;
+}
+
 export interface AdminUser {
   id: number;
   username: string;

@@ -176,6 +176,10 @@ class ExpenseReviewDetailResponse(ExpenseResponse):
     pass
 
 
+class ExpenseBulkApproveResponse(BaseModel):
+    approved_count: int
+
+
 class LedgerRow(BaseModel):
     id: int
     company_entity: str
