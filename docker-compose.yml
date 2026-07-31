@@ -32,6 +32,7 @@ services:
       args:
         VITE_BASE_PATH: ${FRONTEND_BASE_PATH:-/}
         VITE_API_BASE_URL: ${FRONTEND_API_BASE_URL:-/api}
+        VITE_HOME_URL: ${FRONTEND_HOME_URL:-https://mentti.work}
     restart: unless-stopped
     depends_on:
       - backend

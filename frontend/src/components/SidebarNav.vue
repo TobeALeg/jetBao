@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { BookOpen, Home, ReceiptText, Settings, ShieldCheck } from "lucide-vue-next";
+import { ArrowLeft, BookOpen, Home, ReceiptText, Settings, ShieldCheck } from "lucide-vue-next";
 import { computed } from "vue";
 import type { Component } from "vue";
+import { HOME_URL } from "../config/navigation";
 import type { User, ViewKey } from "../types";
 
 const props = defineProps<{
@@ -54,6 +55,13 @@ function isActive(key: ViewKey): boolean {
     </div>
 
     <nav class="flex gap-1 overflow-x-auto px-3 py-4 lg:flex-col lg:overflow-visible">
+      <a :href="HOME_URL" class="nav-item nav-item-idle shrink-0 lg:w-full">
+        <span class="nav-item-icon">
+          <ArrowLeft class="h-4 w-4" />
+        </span>
+        <span class="nav-item-label">回到首页</span>
+      </a>
+
       <button
         v-for="item in visibleNavItems"
         :key="item.key"
