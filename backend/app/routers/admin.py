@@ -12,7 +12,7 @@ from openpyxl import Workbook
 from app.company_entities import is_allowed_company_entity, normalize_company_entity
 from app.dependencies import require_admin
 from app.expense_month_filter import apply_expense_month_filter, expense_period_label, normalize_month, normalize_month_part, normalize_year
-from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExpenseRejectRequest, ExpenseResponse, ExpenseReviewDetailResponse, ExportPreview, LedgerRow
+from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExpenseBulkApproveResponse, ExpenseRejectRequest, ExpenseResponse, ExpenseReviewDetailResponse, ExportPreview, LedgerRow
 from app.security import hash_password
 from app.services.export_package import build_export_package
 
@@ -463,6 +463,53 @@ def get_expense_for_review(
         attachments = _attachment_rows_for_expense(connection, expense_id)
         allocations = _allocation_rows_for_expense(connection, expense_id)
         return serialize_expense(expense, attachments, allocations, connection)
+
+
+@router.post("/expense-reviews/approve-all", response_model=ExpenseBulkApproveResponse)
+def approve_all_expenses(
+    request: Request,
+    month: str | None = None,
+    year: str | None = None,
+    month_part: str | None = None,
+    company_entity: str | None = None,
+    employee: str | None = None,
+    category: str | None = None,
+    is_substitute: bool | None = Query(default=None),
+    has_duplicate: bool | None = Query(default=None),
+    record_status: str | None = Query(default=None, alias="status"),
+    admin=Depends(require_admin),
+) -> ExpenseBulkApproveResponse:
+    """审核当前台账筛选范围内的全部已提交记录。"""
+    from datetime import datetime, timezone
+
+    # 状态筛选本身没有包含待审核记录时，不应扩大用户当前看到的范围。
+    if record_status and record_status != "matched":
+        return ExpenseBulkApproveResponse(approved_count=0)
+
+    query, params = _ledger_query(
+        month,
+        company_entity,
+        employee,
+        category,
+        is_substitute,
+        has_duplicate,
+        "matched",
+        year=year,
+        month_part=month_part,
+    )
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    with request.app.state.db.connect() as connection:
+        cursor = connection.execute(
+            f"""
+            UPDATE expenses
+            SET status = 'reviewed', reviewed_at = ?, reject_reason = ''
+            WHERE status = 'matched'
+              AND id IN (SELECT id FROM ({query}))
+            """,
+            [now, *params],
+        )
+        approved_count = cursor.rowcount
+    return ExpenseBulkApproveResponse(approved_count=approved_count)
 
 
 @router.post("/expenses/{expense_id}/reject", response_model=ExpenseResponse)

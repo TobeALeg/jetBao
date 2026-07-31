@@ -69,6 +69,7 @@ jobs:
           build-args: |
             VITE_BASE_PATH=/
             VITE_API_BASE_URL=/api
+            VITE_HOME_URL=${{ vars.FRONTEND_HOME_URL || 'https://mentti.work' }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
@@ -110,6 +111,7 @@ jobs:
           build-args: |
             VITE_BASE_PATH=/
             VITE_API_BASE_URL=/api
+            VITE_HOME_URL=${{ vars.FRONTEND_HOME_URL || 'https://mentti.work' }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 

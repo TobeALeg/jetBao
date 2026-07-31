@@ -578,10 +578,10 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
     archive = zipfile.ZipFile(BytesIO(package.content))
     names = archive.namelist()
     assert "5月报销明细.xlsx" in names
-    assert any(name.startswith("山途远智5月报销/差旅交通05月报销/艾丹迪05月报销/") for name in names)
-    assert "山途远智5月报销/差旅交通05月报销/艾丹迪05月报销/客户拜访差旅佐证材料420元.png" in names
-    assert "山途远智5月报销/差旅交通05月报销/艾丹迪05月报销/客户拜访差旅发票420元.pdf" in names
-    assert "山途远智5月报销/办公采购05月报销/欧阳05月报销/办公耗材发票80元.pdf" in names
+    assert any(name.startswith("山途远智5月报销/艾丹迪05月报销/差旅交通/") for name in names)
+    assert "山途远智5月报销/艾丹迪05月报销/差旅交通/客户拜访差旅佐证材料420元.png" in names
+    assert "山途远智5月报销/艾丹迪05月报销/差旅交通/客户拜访差旅发票420元.pdf" in names
+    assert "山途远智5月报销/欧阳05月报销/办公采购/办公耗材发票80元.pdf" in names
 
     workbook = load_workbook(BytesIO(archive.read("5月报销明细.xlsx")))
     assert workbook.sheetnames[:4] == ["总览", "报销项汇总", "发票明细", "附件与待核对"]
@@ -1693,3 +1693,111 @@ def test_admin_can_preview_expense_attachments_for_review(tmp_path, monkeypatch)
     employee = auth_headers(client, "employee-review", "employee-pass")
     forbidden = client.get(f"/api/admin/expenses/{expense_id}", headers=employee)
     assert forbidden.status_code == 403
+
+
+def test_admin_bulk_approve_respects_ledger_filters_permissions_and_is_idempotent(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    admin = auth_headers(client, "admin", "admin123")
+
+    created_employee = client.post(
+        "/api/admin/users",
+        headers=admin,
+        json={
+            "username": "bulk-review-employee",
+            "password": "employee-pass",
+            "role": "employee",
+            "employee_name": "批量审核员工",
+            "company_entity": "上海山途远智信息科技有限公司",
+        },
+    )
+    assert created_employee.status_code == 200
+    employee = auth_headers(client, "bulk-review-employee", "employee-pass")
+
+    with client.app.state.db.connect() as connection:
+        dandi = connection.execute("SELECT id FROM users WHERE username = 'Dandi'").fetchone()
+
+        def insert_expense(project_name: str, expense_month: str, record_status: str, reviewed_at: str = "") -> int:
+            cursor = connection.execute(
+                """
+                INSERT INTO expenses (
+                    user_id, company_entity, project_name, category, expense_month,
+                    actual_amount, status, reviewed_at
+                ) VALUES (?, ?, ?, '办公采购', ?, 100, ?, ?)
+                """,
+                (
+                    dandi["id"],
+                    "上海山途远智信息科技有限公司",
+                    project_name,
+                    expense_month,
+                    record_status,
+                    reviewed_at,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+        may_matched_id = insert_expense("五月待审核", "2026-05", "matched")
+        june_matched_id = insert_expense("六月待审核", "2026-06", "matched")
+        pending_id = insert_expense("五月待补材料", "2026-05", "pending")
+        reviewed_id = insert_expense("五月已审核", "2026-05", "reviewed", "2026-05-31 12:00:00")
+
+    forbidden = client.post(
+        "/api/admin/expense-reviews/approve-all?month=2026-05",
+        headers=employee,
+    )
+    assert forbidden.status_code == 403
+
+    approved = client.post(
+        "/api/admin/expense-reviews/approve-all?month=2026-05&employee=艾丹迪",
+        headers=admin,
+    )
+    assert approved.status_code == 200
+    assert approved.json() == {"approved_count": 1}
+
+    repeated = client.post(
+        "/api/admin/expense-reviews/approve-all?month=2026-05&employee=艾丹迪",
+        headers=admin,
+    )
+    assert repeated.status_code == 200
+    assert repeated.json() == {"approved_count": 0}
+
+    incompatible_status_filter = client.post(
+        "/api/admin/expense-reviews/approve-all?status=pending",
+        headers=admin,
+    )
+    assert incompatible_status_filter.status_code == 200
+    assert incompatible_status_filter.json() == {"approved_count": 0}
+
+    with client.app.state.db.connect() as connection:
+        rows = {
+            row["id"]: row
+            for row in connection.execute(
+                "SELECT id, status, reviewed_at FROM expenses WHERE id IN (?, ?, ?, ?)",
+                (may_matched_id, june_matched_id, pending_id, reviewed_id),
+            ).fetchall()
+        }
+    assert rows[may_matched_id]["status"] == "reviewed"
+    assert rows[may_matched_id]["reviewed_at"]
+    assert rows[june_matched_id]["status"] == "matched"
+    assert rows[pending_id]["status"] == "pending"
+    assert rows[reviewed_id]["status"] == "reviewed"
+    assert rows[reviewed_id]["reviewed_at"] == "2026-05-31 12:00:00"
+
+    approve_remaining = client.post(
+        "/api/admin/expense-reviews/approve-all",
+        headers=admin,
+    )
+    assert approve_remaining.status_code == 200
+    assert approve_remaining.json() == {"approved_count": 1}
+
+    with client.app.state.db.connect() as connection:
+        final_rows = {
+            row["id"]: row
+            for row in connection.execute(
+                "SELECT id, status, reviewed_at FROM expenses WHERE id IN (?, ?, ?)",
+                (june_matched_id, pending_id, reviewed_id),
+            ).fetchall()
+        }
+    assert final_rows[june_matched_id]["status"] == "reviewed"
+    assert final_rows[june_matched_id]["reviewed_at"]
+    assert final_rows[pending_id]["status"] == "pending"
+    assert final_rows[reviewed_id]["reviewed_at"] == "2026-05-31 12:00:00"

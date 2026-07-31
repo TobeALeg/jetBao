@@ -102,7 +102,7 @@ function scrollTo(id: string) {
             <h2>系统简介</h2>
           </div>
           <div class="guide-card">
-            <p>JetBao 用于公司内部报销材料的整理与提交。员工上传<strong>佐证材料</strong>和<strong>发票</strong>，系统自动识别发票信息并校验重复；管理员审核通过后归档，并可一键导出四页 Excel 与按板块整理的发票压缩包。</p>
+            <p>JetBao 用于公司内部报销材料的整理与提交。员工上传<strong>佐证材料</strong>和<strong>发票</strong>，系统自动识别发票信息并校验重复；管理员审核通过后归档，并可一键导出四页 Excel 与按公司、人员和报销类别整理的发票压缩包。</p>
             <div class="mt-4 grid gap-3 sm:grid-cols-2">
               <div class="rounded-lg border border-slate-200 bg-slate-50 p-4">
                 <p class="text-xs font-semibold text-slate-500">员工可访问</p>

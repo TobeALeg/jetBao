@@ -5,6 +5,7 @@ import type {
   Attachment,
   DraftExpenseCompletePayload,
   Expense,
+  ExpenseBulkApproveResult,
   ExpenseReviewDetail,
   ExpenseAllocationBatchCreatePayload,
   ExpenseAllocationCreatePayload,
@@ -221,6 +222,17 @@ export async function approveExpense(id: number): Promise<Expense> {
   });
 }
 
+export async function approveAllExpenses(filters: Record<string, string>): Promise<ExpenseBulkApproveResult> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const query = params.toString();
+  return request(`/admin/expense-reviews/approve-all${query ? `?${query}` : ""}`, {
+    method: "POST"
+  });
+}
+
 export async function unreviewExpense(id: number): Promise<Expense> {
   return request(`/admin/expenses/${id}/unreview`, {
     method: "POST"
@@ -315,7 +327,7 @@ export async function downloadExport(filters: Record<string, string>, periodLabe
   URL.revokeObjectURL(url);
 }
 
-export async function downloadExportPackage(filters: Record<string, string>, periodLabel = "全部"): Promise<void> {
+export async function downloadExportPackage(filters: Record<string, string>): Promise<void> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value) params.set(key, value);
@@ -336,7 +348,8 @@ export async function downloadExportPackage(filters: Record<string, string>, per
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = serverName || `山途远智${periodLabel}报销明细包.zip`;
+  const currentMonth = new Date().getMonth() + 1;
+  link.download = serverName || `山途远智${currentMonth}月报销明细.zip`;
   link.click();
   URL.revokeObjectURL(url);
 }

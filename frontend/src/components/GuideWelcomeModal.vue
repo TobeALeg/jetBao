@@ -82,7 +82,7 @@ const isAdmin = computed(() => props.user.role === "admin");
             <ul class="space-y-1.5">
               <li>查看全员报销，按月份 / 员工 / 状态筛选。</li>
               <li>点击「预览」查看佐证与发票，「通过」或「打回」。</li>
-              <li>可一键导出四页 Excel 与按板块整理的发票压缩包。</li>
+              <li>可一键导出四页 Excel 与按公司、人员和报销类别整理的发票压缩包。</li>
             </ul>
           </section>
 

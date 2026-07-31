@@ -5,9 +5,11 @@ import re
 import sqlite3
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
@@ -19,6 +21,7 @@ from app.expense_month_filter import apply_expense_month_filter, expense_period_
 
 INVALID_PATH_CHARS = re.compile(r'[\\/:*?"<>|\r\n]+')
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic"}
+BUSINESS_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 @dataclass(frozen=True)
@@ -65,7 +68,6 @@ def build_export_package(
     workbook = build_export_workbook(bundles, month, company_entity, year=year, month_part=month_part)
 
     month_name = export_period_label(month, year, month_part)
-    root_folder = f"山途远智{month_name}报销"
     output = BytesIO()
     written_files: set[str] = set()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -78,7 +80,8 @@ def build_export_package(
                 written_files.add(document.package_path)
 
     output.seek(0)
-    return output, f"{root_folder}明细包.zip"
+    current_month = datetime.now(BUSINESS_TIMEZONE).month
+    return output, f"山途远智{current_month}月报销明细.zip"
 
 
 def build_export_workbook(
@@ -137,9 +140,9 @@ def load_export_bundles(
         group_id = f"G{index:02d}"
         representative = members[0]
         category_name = category
-        category_folder = f"{safe_path_part(category, '未分类')}{folder_month}报销"
+        category_folder = safe_path_part(category, "未分类")
         employee_folder = f"{safe_path_part(employee, '未命名员工')}{folder_month}报销"
-        folder_path = f"{root_folder}/{category_folder}/{employee_folder}"
+        folder_path = f"{root_folder}/{employee_folder}/{category_folder}"
 
         transactions: list[ExportDocument] = []
         invoices: list[ExportInvoice] = []
