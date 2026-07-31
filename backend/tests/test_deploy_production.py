@@ -225,7 +225,11 @@ def test_failed_health_rolls_back_app_but_never_restores_database(
         )
     assert len(list((app_dir / "backups" / "sqlite").glob("jetbao-*.sqlite3"))) == 1
     docker_log = Path(env["DOCKER_LOG"]).read_text(encoding="utf-8")
-    assert docker_log.count("up -d --remove-orphans --wait --wait-timeout 180") == 2
+    assert "up -d --remove-orphans --wait --wait-timeout 180" in docker_log
+    assert (
+        "up -d --remove-orphans --force-recreate --wait --wait-timeout 180"
+        in docker_log
+    )
 
 
 def test_first_contract_deploy_uses_running_release_as_baseline(
