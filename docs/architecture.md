@@ -16,8 +16,10 @@
 - 管理员接口通过台账查询所有人的 `expenses`，但不切换身份。
 - `services/export_package.py`：管理员导出服务，从 `expenses`、`expense_attachments`、`expense_invoice_allocations` 生成多 Sheet Excel 和附件 ZIP。
 - Docker 部署由前端 Nginx 容器和后端 FastAPI 容器组成；本地 Compose 支持子路径，生产环境固定由 `jetbao.mentti.work` 根路径提供服务。
-- PR 运行后端测试、前端构建和容器构建；合并 `main` 后发布 commit SHA 镜像到 GHCR，再由 GitHub Actions 通过专用 SSH 用户更新服务器。
+- PR 运行后端测试、前端构建和容器构建；合并 `main` 后只发布 commit SHA 镜像到 GHCR，再由 GitHub Actions 通过专用 SSH 用户更新服务器。
 - 生产密钥位于服务器 `/opt/jetbao/.env`，SQLite 和附件位于 `/opt/jetbao/data`；镜像和代码发布不能覆盖持久化数据。
+- 所有同机 Docker 发布竞争服务器共享锁 `/var/lock/mentti-docker-deploy.lock`；JetBao 发布在切换前创建 SQLite 一致性备份，失败时自动回滚应用镜像和部署清单，但不自动覆盖数据库。
+- 数据库迁移在后端启动时自动执行，因此 schema 变更必须向后兼容上一个成功版本；需要破坏性迁移时必须单独设计停机迁移和人工恢复方案，不能依赖应用镜像回滚。
 
 ### data flow
 
@@ -39,7 +41,7 @@
 15. 导出总览：首页按公司主体和公司+人员两层汇总报销项数、发票张数、票面金额、本次报销金额和差异，供财务先核对主体归属。
 16. 本地子路径部署：浏览器访问 `/bx/` 时，主机 Nginx 去掉 `/bx/` 前缀后转发静态页面到前端容器；浏览器访问 `/bx/api/*` 时转发到后端容器的 `/api/*`。
 17. 生产域名部署：`jetbao.mentti.work` 由宿主机 Nginx 终止 HTTPS，并转发到只监听 `127.0.0.1:18080` 的前端容器；前端容器把 `/api/*` 转发给 Compose 内部的后端服务。
-18. 自动发布：PR 只验证；`main` 的成功流水线发布不可变镜像并写入当前 commit SHA，服务器拉取镜像、健康检查通过后完成切换。
+18. 自动发布：PR 只验证；`main` 的成功流水线发布不可变镜像。服务器串行获取共享锁，有界重试拉取镜像，对 SQLite 做一致性备份，再以候选清单切换；本机和公网健康门禁都通过后才更新 `release.env`，失败则恢复上一个应用版本。
 19. 统一登录：JetBao 生成随机 `state` 后跳转 MentiHub；MentiHub 验证企业邮箱并返回一次性授权码；JetBao 后端兑换 `sub/email`，只允许本地已预登记且启用的员工进入，并通过 host-only HttpOnly Cookie 建立 12 小时会话。
 20. 登录迁移：`AUTH_MODE=hybrid` 时保留旧用户名密码入口供管理员补齐企业邮箱；全部员工绑定后切换 `AUTH_MODE=sso`，密码登录和修改密码接口随即关闭。
 
