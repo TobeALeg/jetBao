@@ -137,9 +137,9 @@ def load_export_bundles(
         group_id = f"G{index:02d}"
         representative = members[0]
         category_name = category
-        category_folder = f"{safe_path_part(category, '未分类')}{folder_month}报销"
+        category_folder = safe_path_part(category, "未分类")
         employee_folder = f"{safe_path_part(employee, '未命名员工')}{folder_month}报销"
-        folder_path = f"{root_folder}/{category_folder}/{employee_folder}"
+        folder_path = f"{root_folder}/{employee_folder}/{category_folder}"
 
         transactions: list[ExportDocument] = []
         invoices: list[ExportInvoice] = []

@@ -578,10 +578,10 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
     archive = zipfile.ZipFile(BytesIO(package.content))
     names = archive.namelist()
     assert "5月报销明细.xlsx" in names
-    assert any(name.startswith("山途远智5月报销/差旅交通05月报销/艾丹迪05月报销/") for name in names)
-    assert "山途远智5月报销/差旅交通05月报销/艾丹迪05月报销/客户拜访差旅佐证材料420元.png" in names
-    assert "山途远智5月报销/差旅交通05月报销/艾丹迪05月报销/客户拜访差旅发票420元.pdf" in names
-    assert "山途远智5月报销/办公采购05月报销/欧阳05月报销/办公耗材发票80元.pdf" in names
+    assert any(name.startswith("山途远智5月报销/艾丹迪05月报销/差旅交通/") for name in names)
+    assert "山途远智5月报销/艾丹迪05月报销/差旅交通/客户拜访差旅佐证材料420元.png" in names
+    assert "山途远智5月报销/艾丹迪05月报销/差旅交通/客户拜访差旅发票420元.pdf" in names
+    assert "山途远智5月报销/欧阳05月报销/办公采购/办公耗材发票80元.pdf" in names
 
     workbook = load_workbook(BytesIO(archive.read("5月报销明细.xlsx")))
     assert workbook.sheetnames[:4] == ["总览", "报销项汇总", "发票明细", "附件与待核对"]
