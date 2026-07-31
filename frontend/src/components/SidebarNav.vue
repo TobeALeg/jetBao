@@ -59,7 +59,7 @@ function isActive(key: ViewKey): boolean {
         <span class="nav-item-icon">
           <ArrowLeft class="h-4 w-4" />
         </span>
-        <span class="nav-item-label">回到首页</span>
+        <span class="nav-item-label">回到 dashboard</span>
       </a>
 
       <button

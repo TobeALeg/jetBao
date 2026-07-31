@@ -37,14 +37,14 @@
 11. 管理台账：管理员按月份、公司、员工、类别、状态等条件查询 `expenses`，同时查看交易记录附件和发票匹配摘要。
 12. 导出预览：后端统计 `matched` 和 `reviewed` 记录，同时返回筛选条件下的 `pending` 数量。
 13. 单 Excel 导出：`/api/admin/export.xlsx` 保留轻量台账文件。
-14. 明细包导出：`/api/admin/export-package.zip` 生成 `{期间}报销明细.xlsx`，附件按 `{公司}{期间}报销/{员工}{期间}报销/{报销类别}/{发票或佐证文件}` 归档；例如 `山途远智全部报销/夏莺萁全部报销/办公采购/快递发票20元.pdf`。交易记录附件来自 `expense_attachments`，发票文件来自 `expense_invoice_allocations`。
+14. 明细包导出：`/api/admin/export-package.zip` 生成 `{期间}报销明细.xlsx`，附件按 `{公司}{期间}报销/{员工}{期间}报销/{报销类别}/{发票或佐证文件}` 归档；例如 `山途远智全部报销/夏莺萁全部报销/办公采购/快递发票20元.pdf`。外层压缩包按上海时区的当前月份命名为 `山途远智{当前月}月报销明细.zip`。交易记录附件来自 `expense_attachments`，发票文件来自 `expense_invoice_allocations`。
 15. 导出总览：首页按公司主体和公司+人员两层汇总报销项数、发票张数、票面金额、本次报销金额和差异，供财务先核对主体归属。
 16. 本地子路径部署：浏览器访问 `/bx/` 时，主机 Nginx 去掉 `/bx/` 前缀后转发静态页面到前端容器；浏览器访问 `/bx/api/*` 时转发到后端容器的 `/api/*`。
 17. 生产域名部署：`jetbao.mentti.work` 由宿主机 Nginx 终止 HTTPS，并转发到只监听 `127.0.0.1:18080` 的前端容器；前端容器把 `/api/*` 转发给 Compose 内部的后端服务。
 18. 自动发布：PR 只验证；`main` 的成功流水线发布不可变镜像。服务器串行获取共享锁，有界重试拉取镜像，对 SQLite 做一致性备份，再以候选清单切换；本机和公网健康门禁都通过后才更新 `release.env`，失败则恢复上一个应用版本。
 19. 统一登录：JetBao 生成随机 `state` 后跳转 MentiHub；MentiHub 验证企业邮箱并返回一次性授权码；JetBao 后端兑换 `sub/email`，只允许本地已预登记且启用的员工进入，并通过 host-only HttpOnly Cookie 建立 12 小时会话。
 20. 登录迁移：`AUTH_MODE=hybrid` 时保留旧用户名密码入口供管理员补齐企业邮箱；全部员工绑定后切换 `AUTH_MODE=sso`，密码登录和修改密码接口随即关闭。
-21. 返回主站：前端构建参数 `VITE_HOME_URL`（Compose/流水线对应 `FRONTEND_HOME_URL`）控制侧栏“回到首页”地址；使用普通导航且不调用退出接口，因此 JetBao 与 MentiHub 各自的 host-only 会话均保留。
+21. 返回主站：前端构建参数 `VITE_HOME_URL`（Compose/流水线对应 `FRONTEND_HOME_URL`）控制侧栏“回到 dashboard”地址；使用普通导航且不调用退出接口，因此 JetBao 与 MentiHub 各自的 host-only 会话均保留。
 
 ### status flow
 

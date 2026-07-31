@@ -91,7 +91,7 @@ docker compose up -d --build
 - `SSO_EMAIL_DOMAIN`：允许预登记的企业邮箱域名，当前为 `mentitrek.com`。
 - `SSO_LOGOUT_URL`：统一退出入口。
 - `SSO_COOKIE_SECURE`：生产 HTTPS 必须为 `true`。
-- `FRONTEND_HOME_URL`：侧边栏“回到首页”的目标地址，默认 `https://mentti.work`；本地 Compose 从 `.env` 读取，生产镜像从同名 GitHub Repository Variable 读取，修改后需要重新构建前端镜像。
+- `FRONTEND_HOME_URL`：侧边栏“回到 dashboard”的目标地址，默认 `https://mentti.work`；本地 Compose 从 `.env` 读取，生产镜像从同名 GitHub Repository Variable 读取，修改后需要重新构建前端镜像。
 - `DATA_DIR`：SQLite 数据和附件目录。
 - `UPLOAD_DIR`：附件上传目录。
 - `TENCENT_SECRET_ID` / `TENCENT_SECRET_KEY`：腾讯云访问密钥。未配置时，系统允许手动填写。

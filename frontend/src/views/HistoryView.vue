@@ -73,13 +73,6 @@ function queryKey(params: Record<string, string>): string {
   return JSON.stringify(Object.entries(params).sort(([left], [right]) => left.localeCompare(right)));
 }
 
-const exportPeriodLabel = computed(() => {
-  if (filterYear.value && filterMonthPart.value) return `${filterYear.value}-${filterMonthPart.value}`;
-  if (filterYear.value) return filterYear.value;
-  if (filterMonthPart.value) return `第${Number(filterMonthPart.value)}月`;
-  return "全部";
-});
-
 // Group by month
 const monthGroups = computed(() => {
   const groups = new Map<string, LedgerRow[]>();
@@ -272,7 +265,7 @@ async function handleExport() {
     if (filters.value.company_entity) {
       params.company_entity = filters.value.company_entity;
     }
-    await downloadExportPackage(params, exportPeriodLabel.value);
+    await downloadExportPackage(params);
     success.value = "导出成功：包含四页 Excel 与按公司/人员/报销类别整理的发票压缩包";
   } catch (err) {
     error.value = err instanceof Error ? err.message : "导出失败";
