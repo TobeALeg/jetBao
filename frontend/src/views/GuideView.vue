@@ -155,7 +155,7 @@ function scrollTo(id: string) {
               <ol class="guide-steps mt-3">
                 <li>填写<strong>报销事项</strong>、<strong>金额</strong>、<strong>类别</strong>，按需选择是否<strong>替票</strong>。</li>
                 <li>上传<strong>佐证材料</strong>（可多张，支持图片 / PDF），点击缩略图可预览。</li>
-                <li>上传<strong>发票</strong>（一次 1 张），系统自动 OCR 识别金额、发票号码、票种、销售方等。</li>
+                <li>上传<strong>发票</strong>（可一次多选），系统自动 OCR 识别每张发票的金额、号码、票种、销售方等。</li>
                 <li>确认识别结果无误后，点击<strong>提交报销</strong>；也可先「保存待补」稍后再补发票。</li>
               </ol>
             </div>
@@ -163,7 +163,7 @@ function scrollTo(id: string) {
             <div class="grid gap-3 sm:grid-cols-2">
               <div class="rounded-lg border border-slate-200 p-4">
                 <h3 class="guide-subtitle">替票选「否」</h3>
-                <p class="mt-2 text-sm text-slate-600">发票金额须与报销金额<strong>完全一致</strong>，否则请调整金额或改选替票。</p>
+                <p class="mt-2 text-sm text-slate-600">一张发票只能用于一笔报销；一笔报销可包含多张发票，票面合计须与报销金额<strong>完全一致</strong>。</p>
               </div>
               <div class="rounded-lg border border-orange-100 bg-orange-50/50 p-4">
                 <h3 class="guide-subtitle text-orange-800">替票选「是」</h3>

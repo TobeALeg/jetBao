@@ -185,6 +185,15 @@ export async function addAttachmentsToInvoicePool(attachmentIds: number[]): Prom
   });
 }
 
+export async function uploadInvoiceAttachments(files: File[]): Promise<Attachment[]> {
+  const form = new FormData();
+  files.forEach((file) => form.append("files", file));
+  return request("/attachments/invoices/batch", {
+    method: "POST",
+    body: form
+  });
+}
+
 export async function createExpenseDraft(payload: ExpenseCreatePayload): Promise<Expense> {
   return request("/expenses", {
     method: "POST",
