@@ -159,7 +159,18 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           remote_stage=".jetbao-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          ssh "$DEPLOY_USER@$DEPLOY_HOST" 'mkdir -p /opt/jetbao/app /opt/jetbao/scripts'
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" '
+            available_kb=$(df -Pk /opt/jetbao | awk '\''NR == 2 { print $4 }'\'')
+            used_percent=$(df -Pk /opt/jetbao | awk '\''NR == 2 { gsub(/%/, "", $5); print $5 }'\'')
+            available_percent=$((100 - used_percent))
+            if [ "$available_kb" -lt 4194304 ] || [ "$available_percent" -lt 10 ]; then
+              echo "Insufficient disk space before deployment upload" >&2
+              df -h /opt/jetbao >&2
+              docker system df >&2 || true
+              exit 1
+            fi
+            mkdir -p /opt/jetbao/app /opt/jetbao/scripts
+          '
           ssh "$DEPLOY_USER@$DEPLOY_HOST" \
             "df -h /opt/jetbao && df -i /opt/jetbao && \
              ls -ld /opt/jetbao /opt/jetbao/app /opt/jetbao/scripts && \
@@ -174,13 +185,17 @@ jobs:
             "$DEPLOY_USER@$DEPLOY_HOST:$remote_stage/sso.env"
           scp scripts/deploy-production.sh \
             "$DEPLOY_USER@$DEPLOY_HOST:$remote_stage/deploy-production.sh"
+          scp scripts/prune_docker_images.py \
+            "$DEPLOY_USER@$DEPLOY_HOST:$remote_stage/prune_docker_images.py"
           ssh "$DEPLOY_USER@$DEPLOY_HOST" \
             "mv -f ~/$remote_stage/compose.production.yml /opt/jetbao/app/compose.production.yml.candidate && \
              mv -f ~/$remote_stage/sso.env /opt/jetbao/app/sso.env.candidate && \
              mv -f ~/$remote_stage/deploy-production.sh /opt/jetbao/scripts/deploy-production.sh && \
+             mv -f ~/$remote_stage/prune_docker_images.py /opt/jetbao/scripts/prune_docker_images.py && \
              rmdir ~/$remote_stage && \
              chmod 600 /opt/jetbao/app/sso.env.candidate && \
-             chmod 750 /opt/jetbao/scripts/deploy-production.sh"
+             chmod 750 /opt/jetbao/scripts/deploy-production.sh && \
+             chmod 750 /opt/jetbao/scripts/prune_docker_images.py"
       - name: Pull and restart
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}

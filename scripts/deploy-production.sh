@@ -19,6 +19,9 @@ BACKUP_RETENTION_COUNT="${BACKUP_RETENTION_COUNT:-20}"
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://jetbao.mentti.work}"
 PULL_ATTEMPTS="${PULL_ATTEMPTS:-2}"
 PULL_RETRY_DELAY="${PULL_RETRY_DELAY:-15}"
+MIN_AVAILABLE_BYTES="${MIN_AVAILABLE_BYTES:-4294967296}"
+MIN_AVAILABLE_PERCENT="${MIN_AVAILABLE_PERCENT:-10}"
+IMAGE_PRUNER="${IMAGE_PRUNER:-${APP_DIR}/scripts/prune_docker_images.py}"
 
 : "${IMAGE_PREFIX:?IMAGE_PREFIX is required}"
 : "${IMAGE_TAG:?IMAGE_TAG is required}"
@@ -51,6 +54,32 @@ exec 9<>"${DEPLOY_LOCK_FILE}"
 echo "Waiting for host deployment lock: ${DEPLOY_LOCK_FILE}"
 flock -w 1800 9
 echo "Host deployment lock acquired"
+
+check_disk_capacity() {
+  local available_kb
+  local used_percent
+  local available_bytes
+  local available_percent
+
+  read -r available_kb used_percent < <(
+    df -Pk "${APP_DIR}" | awk 'NR == 2 { gsub(/%/, "", $5); print $4, $5 }'
+  )
+  if [[ ! "${available_kb}" =~ ^[0-9]+$ || ! "${used_percent}" =~ ^[0-9]+$ ]]; then
+    echo "Cannot determine disk capacity for ${APP_DIR}" >&2
+    return 1
+  fi
+  available_bytes=$((available_kb * 1024))
+  available_percent=$((100 - used_percent))
+  echo "Disk preflight: available=${available_bytes} bytes (${available_percent}%)"
+  if ((available_bytes < MIN_AVAILABLE_BYTES || available_percent < MIN_AVAILABLE_PERCENT)); then
+    echo "Insufficient disk space: require at least ${MIN_AVAILABLE_BYTES} bytes and ${MIN_AVAILABLE_PERCENT}% available" >&2
+    df -h "${APP_DIR}" >&2 || true
+    docker system df >&2 || true
+    return 1
+  fi
+}
+
+check_disk_capacity
 
 initialize_release_baseline() {
   [[ -s "${RELEASE_FILE}" ]] && return 0
@@ -380,4 +409,16 @@ promote_candidate_contract() {
 promote_candidate_contract
 
 deployment_started=0
+
+if [[ -f "${IMAGE_PRUNER}" ]]; then
+  if ! python3 "${IMAGE_PRUNER}" \
+    --apply \
+    --repository-prefix "${IMAGE_PREFIX}-" \
+    --release-root "${APP_DIR}" \
+    --keep-per-repository 2 \
+    --minimum-age-hours 24; then
+    echo "Warning: release succeeded but stale JetBao image cleanup failed" >&2
+  fi
+fi
+
 echo "Release ${IMAGE_TAG} deployed successfully"
