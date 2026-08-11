@@ -158,15 +158,29 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
+          remote_stage=".jetbao-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           ssh "$DEPLOY_USER@$DEPLOY_HOST" 'mkdir -p /opt/jetbao/app /opt/jetbao/scripts'
-          scp compose.production.yml \
-            "$DEPLOY_USER@$DEPLOY_HOST:/opt/jetbao/app/compose.production.yml.candidate"
-          scp sso.env \
-            "$DEPLOY_USER@$DEPLOY_HOST:/opt/jetbao/app/sso.env.candidate"
-          scp scripts/deploy-production.sh \
-            "$DEPLOY_USER@$DEPLOY_HOST:/opt/jetbao/scripts/deploy-production.sh"
           ssh "$DEPLOY_USER@$DEPLOY_HOST" \
-            'chmod 600 /opt/jetbao/app/sso.env.candidate && chmod 750 /opt/jetbao/scripts/deploy-production.sh'
+            "df -h /opt/jetbao && df -i /opt/jetbao && \
+             ls -ld /opt/jetbao /opt/jetbao/app /opt/jetbao/scripts && \
+             stat -c '%A %U:%G %n' \
+               /opt/jetbao/app/compose.production.yml.candidate \
+               /opt/jetbao/app/sso.env.candidate \
+               /opt/jetbao/scripts/deploy-production.sh 2>/dev/null || true"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -m 700 ~/$remote_stage"
+          scp compose.production.yml \
+            "$DEPLOY_USER@$DEPLOY_HOST:$remote_stage/compose.production.yml"
+          scp sso.env \
+            "$DEPLOY_USER@$DEPLOY_HOST:$remote_stage/sso.env"
+          scp scripts/deploy-production.sh \
+            "$DEPLOY_USER@$DEPLOY_HOST:$remote_stage/deploy-production.sh"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" \
+            "mv -f ~/$remote_stage/compose.production.yml /opt/jetbao/app/compose.production.yml.candidate && \
+             mv -f ~/$remote_stage/sso.env /opt/jetbao/app/sso.env.candidate && \
+             mv -f ~/$remote_stage/deploy-production.sh /opt/jetbao/scripts/deploy-production.sh && \
+             rmdir ~/$remote_stage && \
+             chmod 600 /opt/jetbao/app/sso.env.candidate && \
+             chmod 750 /opt/jetbao/scripts/deploy-production.sh"
       - name: Pull and restart
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
