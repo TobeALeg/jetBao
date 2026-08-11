@@ -6,7 +6,7 @@
 
 - Pull Request：运行后端测试、前端类型检查与构建、前后端镜像构建。
 - 合并到 `main`：CI 通过后，将以 commit SHA 标记的前后端镜像推送到 GHCR。
-- CD：GitHub Actions 通过专用 SSH 用户上传候选 Compose 清单和部署脚本；服务器获取同机共享发布锁，有界重试拉取该 SHA 镜像，备份 SQLite，再执行切换。
+- CD：GitHub Actions 通过专用 SSH 用户先上传到该用户的私有临时目录，再原子替换候选 Compose 清单和部署脚本；服务器获取同机共享发布锁，有界重试拉取该 SHA 镜像，备份 SQLite，再执行切换。
 - 成功定义：Compose 健康检查、本机 API/首页、公网 API/首页全部通过；之后才一致性
   晋升 Compose、SSO 与 release 文件。任一替换失败会先恢复完整的上一契约。
 - 失败处理：候选版本启动或健康门禁失败时自动恢复上一个应用镜像、Compose 清单和 SSO 配置。数据库备份只供人工恢复，不会被自动覆盖回线上。
