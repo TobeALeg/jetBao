@@ -134,6 +134,7 @@ exec /bin/mv "$@"
             "DOCKER_LOG": str(docker_log),
             "IMAGE_PREFIX": "ghcr.io/example/jetbao",
             "IMAGE_TAG": SHA,
+            "MIN_AVAILABLE_PERCENT": "0",
             "PATH": f"{fake_bin}:{env['PATH']}",
             "PULL_ATTEMPTS": "2",
             "PULL_FAILURES": str(pull_failures),
@@ -299,6 +300,21 @@ def test_missing_bootstrapped_lock_blocks_deploy(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "Missing host deployment lock" in result.stderr
+    assert " pull " not in f" {Path(env['DOCKER_LOG']).read_text()} "
+
+
+def test_low_disk_space_blocks_deploy_before_pull(tmp_path: Path) -> None:
+    app_dir, env = _prepare_fake_host(tmp_path, pull_failures=0)
+    (app_dir / "app" / "release.env").write_text(
+        "IMAGE_PREFIX=ghcr.io/example/jetbao\nIMAGE_TAG=old-sha\n",
+        encoding="utf-8",
+    )
+    env["MIN_AVAILABLE_BYTES"] = str(10**18)
+
+    result = _run_deploy(env)
+
+    assert result.returncode != 0
+    assert "Insufficient disk space" in result.stderr
     assert " pull " not in f" {Path(env['DOCKER_LOG']).read_text()} "
 
 

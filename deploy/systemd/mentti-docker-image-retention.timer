@@ -1,0 +1,11 @@
+[Unit]
+Description=Run shared Docker image retention daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15m
+Unit=mentti-docker-image-retention.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Retain rollback-capable Docker images on the shared Mentti host
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock -w 1800 /var/lock/mentti-docker-deploy.lock /usr/bin/python3 /opt/jetbao/scripts/prune_docker_images.py --apply --repository-prefix ghcr.io/tobealeg/ --release-root /opt --keep-per-repository 2 --minimum-age-hours 24

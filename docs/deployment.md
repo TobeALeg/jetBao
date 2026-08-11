@@ -6,7 +6,7 @@
 
 - Pull Request：运行后端测试、前端类型检查与构建、前后端镜像构建。
 - 合并到 `main`：CI 通过后，将以 commit SHA 标记的前后端镜像推送到 GHCR。
-- CD：GitHub Actions 通过专用 SSH 用户先上传到该用户的私有临时目录，再原子替换候选 Compose 清单和部署脚本；服务器获取同机共享发布锁，有界重试拉取该 SHA 镜像，备份 SQLite，再执行切换。
+- CD：GitHub Actions 通过专用 SSH 用户先检查根分区至少还有 4 GiB 且 10% 可用空间，再上传到该用户的私有临时目录，原子替换候选 Compose 清单和部署脚本；服务器获取同机共享发布锁，有界重试拉取该 SHA 镜像，备份 SQLite，再执行切换。
 - 成功定义：Compose 健康检查、本机 API/首页、公网 API/首页全部通过；之后才一致性
   晋升 Compose、SSO 与 release 文件。任一替换失败会先恢复完整的上一契约。
 - 失败处理：候选版本启动或健康门禁失败时自动恢复上一个应用镜像、Compose 清单和 SSO 配置。数据库备份只供人工恢复，不会被自动覆盖回线上。
@@ -27,7 +27,8 @@
 ├── backups/
 │   └── sqlite/           # 部署前一致性备份，默认保留最近 20 份
 ├── scripts/
-│   └── deploy-production.sh
+│   ├── deploy-production.sh
+│   └── prune_docker_images.py # 引用感知的镜像保留器，默认只预览
 └── data/                 # SQLite 与上传附件，必须备份
 ```
 
@@ -92,7 +93,54 @@ sudo systemd-tmpfiles --create /etc/tmpfiles.d/mentti-docker-deploy.conf
 部署直接失败，不允许脚本自行创建。`tmpfiles` 契约保证服务器重启后锁文件仍以
 `root:docker 0664` 重建。每次部署通过 `flock` 最多等待 30 分钟，避免和
 MentiProbe、MentiHub、GEO 等服务同时操作 containerd/overlayfs。不要在每次部署里
-`chown`、`chmod`，也不要自动执行 Docker image prune。
+`chown`、`chmod`，也不要执行无差别的 `docker system prune -a` 或
+`docker volume prune`。
+
+## 磁盘容量与镜像保留
+
+生产主机只有 40 GiB，且由 JetBao、MentiProbe、MentiHub GEO、Dashboard 等服务
+共享同一个 containerd。`docker compose pull/up` 不会删除旧的 commit-SHA 镜像；如果
+各仓库只拉取不保留，最终会耗尽根分区，并可能触发 rsyslog/journald 在 `ENOSPC` 下的
+错误转发回路，表现为持续高 CPU 和磁盘 I/O。
+
+部署有两道容量门禁：Actions 上传前检查一次，服务器取得共享锁后再检查一次。任一时点
+可用空间低于 4 GiB 或 10% 都会在上传、拉取和数据库备份之前停止，不切换应用。
+
+`scripts/prune_docker_images.py` 按镜像 ID 做引用感知保留：
+
+- 永远保留所有容器正在使用的镜像；
+- 保留 `/opt/**/release.env*` 中 `IMAGE_TAG` 指向的当前/回滚版本；
+- 每个仓库至少保留最新两个镜像，并保留 24 小时内的新镜像；
+- 同一 image ID 有任一 tag 被保护时，整个镜像都不会删除；
+- 默认 dry-run，只有显式 `--apply` 才执行 `docker image rm`；不删除容器、volume、
+  数据库、上传文件或配置。
+
+JetBao 成功通过内外健康门禁并晋升 release 文件后，会在共享发布锁内只清理
+`ghcr.io/tobealeg/jetbao-*` 的过期镜像。为了覆盖共享主机上的其他仓库，管理员需一次性
+安装每日保留任务；定时任务只管理 `ghcr.io/tobealeg/` 下的版本化生产镜像，不触碰
+Leadroom 等本机手工构建镜像：
+
+```bash
+sudo install -m 0644 deploy/systemd/mentti-docker-image-retention.service \
+  /etc/systemd/system/mentti-docker-image-retention.service
+sudo install -m 0644 deploy/systemd/mentti-docker-image-retention.timer \
+  /etc/systemd/system/mentti-docker-image-retention.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now mentti-docker-image-retention.timer
+```
+
+首次执行前必须先 dry-run 并核对输出中的 current/previous 白名单：
+
+```bash
+sudo /usr/bin/flock -w 1800 /var/lock/mentti-docker-deploy.lock \
+  /usr/bin/python3 /opt/jetbao/scripts/prune_docker_images.py \
+  --repository-prefix ghcr.io/tobealeg/ --release-root /opt \
+  --keep-per-repository 2 --minimum-age-hours 24
+```
+
+容量监控至少为根分区配置 `available < 20%` 预警和 `available < 10%` 严重告警。
+事故排查使用 `df -h /`、`docker system df --verbose` 和
+`journalctl --since '-5 minutes'`；禁止手工删除 `/var/lib/containerd` 或 overlay snapshot。
 
 部署前使用 Python `sqlite3.Connection.backup()` 为 `/opt/jetbao/data/jetbao.sqlite3` 创建在线一致性备份，并执行 `PRAGMA integrity_check`。备份写入 `/opt/jetbao/backups/sqlite`，默认保留最近 20 份，可通过 `BACKUP_RETENTION_COUNT` 调整。
 
