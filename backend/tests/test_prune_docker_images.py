@@ -68,3 +68,26 @@ def test_select_candidates_keeps_all_tags_when_one_tag_protects_shared_image() -
     )
 
     assert candidates == []
+
+
+def test_load_protected_release_tags_supports_multi_service_tag_names(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    release_file = tmp_path / "mentihub-geo" / "release.env.previous"
+    release_file.parent.mkdir()
+    release_file.write_text(
+        "MONITOR_API_IMAGE_TAG=monitor-api-sha\n"
+        "CONSOLE_WEB_IMAGE_TAG=console-web-sha\n"
+        "IMAGE_TAG=single-service-sha\n"
+        "IMAGE_PREFIX=ghcr.io/example/app\n",
+        encoding="utf-8",
+    )
+
+    protected_tags = module.load_protected_release_tags(tmp_path)
+
+    assert protected_tags == {
+        "monitor-api-sha",
+        "console-web-sha",
+        "single-service-sha",
+    }

@@ -85,8 +85,9 @@ def load_protected_release_tags(release_root: Path) -> set[str]:
         except (OSError, UnicodeError):
             continue
         for line in lines:
-            if line.startswith("IMAGE_TAG="):
-                tag = line.partition("=")[2].strip()
+            key, separator, value = line.partition("=")
+            if separator and (key == "IMAGE_TAG" or key.endswith("_IMAGE_TAG")):
+                tag = value.strip()
                 if tag:
                     tags.add(tag)
     return tags
