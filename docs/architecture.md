@@ -25,9 +25,9 @@
 
 1. 待处理报销：前端提交项目名称、金额、月份、类别，后端写入 `expenses.status = pending`。
 2. 交易记录附件：用户在我的报销页或报销整理工作栏上传付款截图、订单截图等图片，前端先调用 `/api/attachments/batch`，再通过 `/api/expenses/{expense_id}/attachments` 写入 `expense_attachments`。
-   员工新建报销工作区沿用该批量接口上传多张佐证；发票使用 `/api/attachments` 单文件上传，识别后通过 `/api/expense-allocations/batch` 绑定到待处理花费。
+   员工新建报销工作区使用该接口上传多张佐证，并通过 `/api/attachments/invoices/batch` 上传和 OCR 多份发票文件；发票 OCR 结果按 `attachment_id + invoice_item_index` 展开为独立发票条目，再通过 `/api/expense-allocations/batch` 一次绑定到同一待处理花费。
 3. 发票暂存：用户上传发票附件时，后端立即保存文件并 OCR，写入 `attachments.pool_status = staged`。
-4. 工作栏匹配：用户为同一条花费选择一张或多张发票，后端写入 `expense_invoice_allocations`；同一发票条目不能再匹配其他花费。发票购买方精确命中任一允许公司主体即可提交；只部分命中时必须带 `buyer_confirmed` 人工确认标记。
+4. 工作栏匹配：用户为同一条花费选择一张或多张发票，后端写入 `expense_invoice_allocations`；每张 OCR 发票条目按票面全额原子绑定，不能拆分，也不能再匹配其他花费。同一上传文件识别出多张发票时，每个 `invoice_item_index` 都是独立发票条目。发票购买方精确命中任一允许公司主体即可提交；只部分命中时必须带 `buyer_confirmed` 人工确认标记。
 5. 发票池：用户点击“加入发票池”后，`/api/attachments/pool` 把附件改成 `pool_status = pooled`；`/api/invoice-pool` 只返回 `pooled` 且未挂到 `expense_attachments` 的附件，并返回票面金额、已匹配金额和剩余可用金额。
 6. 同轮按钮驱动：“记录该笔”创建花费并直接用当前 staged 发票调用 `/api/expense-allocations/batch` 写入绑定关系，不需要先进入发票池；票面金额等于报销金额时按真实票提交，不一致时标记为替票提交。
 7. 发票匹配：匹配只更新票面合计，不自动提交；票面不足时继续待补，票面超出时必须填写替票说明。

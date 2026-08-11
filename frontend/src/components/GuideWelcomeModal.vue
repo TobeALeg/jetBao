@@ -58,7 +58,7 @@ const isAdmin = computed(() => props.user.role === "admin");
             </div>
             <ol class="list-decimal space-y-1.5 pl-5">
               <li>填写报销事项、金额、类别，选择是否替票。</li>
-              <li>上传佐证材料（可多张）和发票（一次 1 张，自动识别）。</li>
+              <li>上传佐证材料和发票（均可多选，发票会逐张自动识别）。</li>
               <li>材料齐全后点击「提交报销」，等待管理员审核。</li>
             </ol>
           </section>
@@ -69,7 +69,7 @@ const isAdmin = computed(() => props.user.role === "admin");
               替票与金额
             </div>
             <ul class="space-y-1.5">
-              <li><strong>替票选「否」</strong>：发票金额须与报销金额完全一致。</li>
+              <li><strong>替票选「否」</strong>：一张发票只归属一笔报销，一笔报销可包含多张发票，票面合计须与报销金额一致。</li>
               <li><strong>替票选「是」</strong>：金额不一致时需填写替票说明。</li>
             </ul>
           </section>

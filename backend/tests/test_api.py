@@ -836,6 +836,86 @@ def test_one_expense_can_match_multiple_invoices_but_invoice_is_single_owner(tmp
     assert by_attachment[second_attachment_id]["remaining_amount"] == 0
 
 
+def test_one_expense_can_match_all_invoices_recognized_from_one_upload(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    dandi = auth_headers(client, "Dandi", "dandi123")
+    from app.routers import attachments as attachments_router
+
+    def recognize_multiple_invoices(_service, _path):
+        return "success", {"invoice_items": [
+            {
+                "buyer": "上海山途远智信息科技有限公司",
+                "amount": 120,
+                "invoice_number": "MULTI-1",
+            },
+            {
+                "buyer": "上海山途远智信息科技有限公司",
+                "amount": 300,
+                "invoice_number": "MULTI-2",
+            },
+        ]}
+
+    monkeypatch.setattr(attachments_router.OcrService, "recognize", recognize_multiple_invoices)
+    upload = client.post(
+        "/api/attachments/invoices/batch",
+        headers=dandi,
+        files=[("files", ("multi-invoice-upload.pdf", b"multi-invoice", "application/pdf"))],
+    )
+    assert upload.status_code == 200
+    uploaded = upload.json()
+    assert len(uploaded) == 1
+    assert len(uploaded[0]["ocr_result"]["invoice_items"]) == 2
+    attachment_id = uploaded[0]["id"]
+
+    response = client.post(
+        "/api/expenses/submit",
+        headers=dandi,
+        json={
+            "project_name": "客户项目差旅",
+            "actual_amount": 420,
+            "expense_month": "2026-05",
+            "category": "差旅交通",
+            "invoices": [
+                {"attachment_id": attachment_id, "invoice_item_index": 0},
+                {"attachment_id": attachment_id, "invoice_item_index": 1},
+            ],
+            "attachment_ids": [],
+            "note": "",
+        },
+    )
+
+    assert response.status_code == 200
+    expense = response.json()
+    assert expense["status"] == "matched"
+    assert expense["invoice_amount"] == 420
+    assert expense["allocation_count"] == 2
+    assert {item["invoice_number"] for item in expense["allocations"]} == {"MULTI-1", "MULTI-2"}
+    assert len(expense["invoice_attachments"]) == 1
+
+    other_expense = client.post(
+        "/api/expenses/drafts",
+        headers=dandi,
+        json={
+            "project_name": "另一个项目",
+            "actual_amount": 120,
+            "expense_month": "2026-05",
+            "category": "差旅交通",
+        },
+    ).json()
+    reused = client.post(
+        "/api/expense-allocations",
+        headers=dandi,
+        json={
+            "expense_id": other_expense["id"],
+            "attachment_id": attachment_id,
+            "invoice_item_index": 0,
+            "note": "",
+        },
+    )
+    assert reused.status_code == 400
+    assert "已经匹配" in reused.json()["detail"]
+
+
 def test_cross_entity_invoice_buyer_requires_confirmation(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     dandi = auth_headers(client, "Dandi", "dandi123")

@@ -170,6 +170,20 @@ def upload_attachments(
     return [_save_and_recognize_attachment(request, file, user, run_ocr=False) for file in files]
 
 
+@router.post("/attachments/invoices/batch", response_model=list[AttachmentResponse])
+def upload_invoice_attachments(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    user=Depends(get_current_user),
+) -> list[AttachmentResponse]:
+    if not files:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少上传一份发票文件")
+    return [
+        _save_and_recognize_attachment(request, file, user, require_invoice=True)
+        for file in files
+    ]
+
+
 @router.post("/attachments/pool", response_model=list[AttachmentResponse])
 def add_attachments_to_invoice_pool(
     payload: AttachmentPoolRequest,

@@ -16,8 +16,8 @@ import {
   linkExpenseAttachments,
   listExpenses,
   submitExpense,
-  uploadAttachment,
   uploadAttachments,
+  uploadInvoiceAttachments,
   withdrawExpense,
 } from "../services/api";
 import { currentReimbursementMonth, formatCurrency } from "../utils/format";
@@ -46,7 +46,7 @@ const targetExpenseId = ref<number | null>(null);
 const isNewSubstitute = ref(false);
 const substituteReason = ref("");
 const evidenceAttachments = ref<Attachment[]>([]);
-const stagedInvoice = ref<Attachment | null>(null);
+const stagedInvoices = ref<Attachment[]>([]);
 const substituteReasonInput = ref<HTMLTextAreaElement | null>(null);
 const evidenceInput = ref<HTMLInputElement | null>(null);
 const invoiceInput = ref<HTMLInputElement | null>(null);
@@ -90,75 +90,59 @@ const tableSections = computed<TableSection[]>(() => {
 });
 const targetExpense = computed(() => expenses.value.find((expense) => expense.id === targetExpenseId.value) ?? null);
 const isEditingPendingExpense = computed(() => Boolean(targetExpenseId.value && targetExpense.value?.status === "pending"));
-const selectedInvoiceItem = computed(() => {
-  const items = stagedInvoice.value?.ocr_result.invoice_items;
-  if (!Array.isArray(items)) return null;
-  return items.find((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).amount === "number") as Record<string, unknown> | null;
-});
-const selectedInvoiceAmount = computed(() => Number(selectedInvoiceItem.value?.amount) || 0);
+const stagedInvoiceItems = computed(() => invoiceReferencesOf(stagedInvoices.value));
+const stagedInvoiceTotal = computed(() => roundMoney(stagedInvoiceItems.value.reduce((sum, invoice) => sum + Number(invoice.item.amount), 0)));
 const linkedInvoiceAmount = computed(() => {
-  if (stagedInvoice.value) return selectedInvoiceAmount.value;
+  if (stagedInvoices.value.length) return stagedInvoiceTotal.value;
   const expense = targetExpense.value;
   if (!expense?.allocations.length) return 0;
   return roundMoney(expense.allocations.reduce((sum, item) => sum + Number(item.invoice_amount || 0), 0));
 });
 const formActualAmount = computed(() => Number(expenseForm.value.actual_amount) || 0);
 const amountsMismatch = computed(() => {
-  const invoiceAmount = linkedInvoiceAmount.value || selectedInvoiceAmount.value;
+  const invoiceAmount = linkedInvoiceAmount.value || stagedInvoiceTotal.value;
   const actualAmount = formActualAmount.value || Number(targetExpense.value?.actual_amount || 0);
   return invoiceAmount > 0 && actualAmount > 0 && roundMoney(invoiceAmount) !== roundMoney(actualAmount);
 });
-const showSubstituteReason = computed(() => isNewSubstitute.value || amountsMismatch.value);
-const canSubmitNew = computed(() => Boolean(stagedInvoice.value && selectedInvoiceItem.value && Number(expenseForm.value.actual_amount) > 0 && selectedInvoiceAmount.value >= Number(expenseForm.value.actual_amount)));
+const invoiceAmountExceedsExpense = computed(() => {
+  const actualAmount = formActualAmount.value || Number(targetExpense.value?.actual_amount || 0);
+  return actualAmount > 0 && linkedInvoiceAmount.value > actualAmount;
+});
+const showSubstituteReason = computed(() => isNewSubstitute.value || invoiceAmountExceedsExpense.value);
+const canSubmitNew = computed(() => Boolean(stagedInvoiceItems.value.length && Number(expenseForm.value.actual_amount) > 0 && stagedInvoiceTotal.value >= Number(expenseForm.value.actual_amount)));
 const canSubmitExisting = computed(() => Boolean(isEditingPendingExpense.value && targetExpense.value && targetExpense.value.allocation_count > 0 && targetExpense.value.remaining_amount <= 0));
 const displayEvidenceAttachments = computed(() => [...(isEditingPendingExpense.value ? targetExpense.value?.attachments ?? [] : []), ...evidenceAttachments.value]);
-const displayInvoiceAttachment = computed<Attachment | null>(() => {
-  if (stagedInvoice.value) return stagedInvoice.value;
+const displayInvoiceAttachments = computed<Attachment[]>(() => {
+  if (stagedInvoices.value.length) return stagedInvoices.value;
   const expense = isEditingPendingExpense.value ? targetExpense.value : null;
-  if (!expense?.allocation_count || !expense.allocations.length) return null;
-  const allocation = expense.allocations[0];
-  const linked = (expense.invoice_attachments ?? []).find((item) => item.id === allocation.attachment_id);
-  if (linked) return linked;
-  return {
-    id: allocation.attachment_id,
-    original_filename: allocation.invoice_number ? `发票-${allocation.invoice_number}.jpg` : `invoice-${allocation.attachment_id}.jpg`,
-    file_hash: "",
-    file_size: 0,
-    duplicate_count: 0,
-    is_duplicate: false,
-    duplicate_of: [],
-    pool_status: "pooled",
-    ocr_status: "success",
-    ocr_result: {},
-    created_at: allocation.created_at,
-  };
+  return expense?.invoice_attachments ?? [];
 });
-const displayInvoiceDetailItem = computed<Record<string, unknown> | null>(() => {
-  if (stagedInvoice.value && selectedInvoiceItem.value) return selectedInvoiceItem.value;
+const displayInvoiceItems = computed(() => {
+  if (stagedInvoices.value.length) return stagedInvoiceItems.value;
   const expense = isEditingPendingExpense.value ? targetExpense.value : null;
-  const attachment = displayInvoiceAttachment.value;
-  if (!expense?.allocations.length || !attachment) return null;
-  const allocation = expense.allocations[0];
-  const items = invoiceItemsOf(attachment);
-  const ocrItem = items[allocation.invoice_item_index];
-  if (ocrItem) return ocrItem;
-  return {
-    amount: allocation.invoice_amount,
-    buyer: allocation.invoice_buyer,
-    invoice_number: allocation.invoice_number,
-    date: allocation.invoice_date,
-    sub_type_description: allocation.invoice_type,
-    seller: "",
-    seller_name: "",
-    item_name: allocation.invoice_type,
-  };
+  if (!expense?.allocations.length) return [];
+  return expense.allocations.map((allocation) => {
+    const attachment = (expense.invoice_attachments ?? []).find((item) => item.id === allocation.attachment_id);
+    const ocrItem = attachment ? invoiceItemsOf(attachment)[allocation.invoice_item_index] : null;
+    return {
+      attachment_id: allocation.attachment_id,
+      invoice_item_index: allocation.invoice_item_index,
+      item: ocrItem ?? {
+        amount: allocation.invoice_amount,
+        buyer: allocation.invoice_buyer,
+        invoice_number: allocation.invoice_number,
+        date: allocation.invoice_date,
+        sub_type_description: allocation.invoice_type,
+      },
+    };
+  });
 });
 const canRemoveInvoice = computed(() => {
-  if (stagedInvoice.value) return true;
+  if (stagedInvoices.value.length) return true;
   const expense = targetExpense.value;
   return Boolean(expense?.allocation_count && expense.status === "pending");
 });
-const invoiceUploadLocked = computed(() => saving.value || Boolean(stagedInvoice.value) || Boolean(isEditingPendingExpense.value && targetExpense.value?.allocation_count));
+const invoiceUploadLocked = computed(() => saving.value);
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
@@ -210,7 +194,7 @@ function tableSectionClass(sectionKey: TableSection["key"]): string {
 function resetComposer() {
   targetExpenseId.value = null;
   evidenceAttachments.value = [];
-  stagedInvoice.value = null;
+  stagedInvoices.value = [];
   isNewSubstitute.value = false;
   substituteReason.value = "";
   expenseForm.value = { project_name: "", actual_amount: "", category: DEFAULT_EXPENSE_CATEGORY };
@@ -259,7 +243,7 @@ function openExistingExpense(expense: Expense) {
     category: expense.category,
   };
   evidenceAttachments.value = [];
-  stagedInvoice.value = null;
+  stagedInvoices.value = [];
   error.value = "";
   success.value = expense.reject_reason ? "此报销已被打回，请修改后重新提交。" : "";
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -299,44 +283,46 @@ function isBuyerConfirmationNeeded(item: Record<string, unknown>): boolean {
   return status === "partial" || (status === "exact" && isDifferentAllowedBuyer(buyer, props.user.company_entity));
 }
 
-function invoiceIndexAndItem(attachment: Attachment): { index: number; item: Record<string, unknown> } | null {
-  const items = invoiceItemsOf(attachment);
-  const index = items.findIndex((item) => typeof item.amount === "number" && Number(item.amount) > 0);
-  return index >= 0 ? { index, item: items[index] } : null;
-}
-
-type PreparedInvoiceLink = {
-  index: number;
-  item: Record<string, unknown>;
+type PreparedInvoiceBatch = {
+  invoices: Array<{ attachment_id: number; invoice_item_index: number }>;
   note: string;
   buyerConfirmed: boolean;
 };
 
-function prepareInvoiceLink(
-  attachment: Attachment,
+type InvoiceReference = {
+  attachment_id: number;
+  invoice_item_index: number;
+  item: Record<string, unknown>;
+};
+
+function invoiceReferencesOf(attachments: Attachment[]): InvoiceReference[] {
+  return attachments.flatMap((attachment) => invoiceItemsOf(attachment)
+    .map((item, index) => ({ attachment_id: attachment.id, invoice_item_index: index, item }))
+    .filter(({ item }) => typeof item.amount === "number" && Number(item.amount) > 0));
+}
+
+function prepareInvoiceLinks(
+  attachments: Attachment[],
   actualAmount: number,
   isSubstitute: boolean,
-  reason = ""
-): PreparedInvoiceLink {
-  const invoice = invoiceIndexAndItem(attachment);
-  if (!invoice) throw new Error("发票未识别到有效金额，请重新上传");
-  const amount = Number(invoice.item.amount);
+  reason = "",
+  existingAmount = 0,
+  requireCoverage = false
+): PreparedInvoiceBatch {
+  const invoices = invoiceReferencesOf(attachments);
+  if (!invoices.length) throw new Error("发票未识别到有效金额，请重新上传");
   const expenseAmount = roundMoney(actualAmount);
-  const invoiceAmount = roundMoney(amount);
+  const invoiceAmount = roundMoney(existingAmount + invoices.reduce((sum, invoice) => sum + Number(invoice.item.amount), 0));
 
-  if (!isSubstitute) {
-    if (invoiceAmount < expenseAmount) {
-      throw new Error("发票金额不足，请补充金额更足的发票");
-    }
-    if (invoiceAmount > expenseAmount) {
-      throw new Error("发票金额高于报销金额，请选择「替票」并填写替票说明");
-    }
-  } else if (invoiceAmount < expenseAmount) {
+  if (requireCoverage && invoiceAmount < expenseAmount) {
     throw new Error("发票金额不足，请补充金额更足的发票");
+  }
+  if (invoiceAmount > expenseAmount && !isSubstitute) {
+    throw new Error("发票合计高于报销金额，请选择「替票」并填写替票说明");
   }
 
   let note = "";
-  if (isSubstitute && invoiceAmount !== expenseAmount) {
+  if (isSubstitute && invoiceAmount !== expenseAmount && (requireCoverage || invoiceAmount > expenseAmount)) {
     note = reason.trim();
     if (!note) {
       setSubstitute(true);
@@ -344,17 +330,22 @@ function prepareInvoiceLink(
     }
   }
 
-  const buyerConfirmed = isBuyerConfirmationNeeded(invoice.item)
-    ? window.confirm("发票购买方需要人工确认，确认继续吗？")
+  const needsBuyerConfirmation = invoices.some((invoice) => isBuyerConfirmationNeeded(invoice.item));
+  const buyerConfirmed = needsBuyerConfirmation
+    ? window.confirm("部分发票的购买方需要人工确认，确认继续吗？")
     : false;
-  if (isBuyerConfirmationNeeded(invoice.item) && !buyerConfirmed) throw new Error("已取消提交，请确认发票购买方");
-  return { ...invoice, note, buyerConfirmed };
+  if (needsBuyerConfirmation && !buyerConfirmed) throw new Error("已取消提交，请确认发票购买方");
+  return {
+    invoices: invoices.map(({ attachment_id, invoice_item_index }) => ({ attachment_id, invoice_item_index })),
+    note,
+    buyerConfirmed,
+  };
 }
 
-async function linkInvoiceToExpense(expenseId: number, attachment: Attachment, prepared: PreparedInvoiceLink): Promise<Expense> {
+async function linkInvoicesToExpense(expenseId: number, prepared: PreparedInvoiceBatch): Promise<Expense> {
   return createExpenseAllocationsBatch({
     expense_id: expenseId,
-    invoices: [{ attachment_id: attachment.id, invoice_item_index: prepared.index }],
+    invoices: prepared.invoices,
     note: prepared.note,
     buyer_confirmed: prepared.buyerConfirmed,
   });
@@ -401,7 +392,11 @@ async function removeEvidenceAttachment(attachment: Attachment) {
 }
 
 async function removeInvoiceAttachment(attachment: Attachment) {
-  if (!window.confirm("确认删除这张发票？")) return;
+  const invoiceCount = invoiceReferencesOf([attachment]).length;
+  const message = invoiceCount > 1
+    ? `这份文件识别出 ${invoiceCount} 张发票，确认全部删除？`
+    : "确认删除这张发票？";
+  if (!window.confirm(message)) return;
   removingAttachmentId.value = attachment.id;
   error.value = "";
   try {
@@ -410,9 +405,7 @@ async function removeInvoiceAttachment(attachment: Attachment) {
       await load();
     } else {
       await deleteAttachment(attachment.id);
-      if (stagedInvoice.value?.id === attachment.id) {
-        stagedInvoice.value = null;
-      }
+      stagedInvoices.value = stagedInvoices.value.filter((item) => item.id !== attachment.id);
     }
     success.value = "发票已删除";
   } catch (err) {
@@ -446,27 +439,26 @@ async function handleEvidenceFiles(files: File[]) {
 async function handleInvoiceFiles(files: File[]) {
   if (!files.length) return;
   if (invoiceUploadLocked.value) return;
-  if (files.length > 1) {
-    error.value = "发票一次只能上传 1 张";
-    return;
-  }
   saving.value = true;
   error.value = "";
   try {
-    const uploaded = withUploadPreview(files, [await uploadAttachment(files[0])])[0];
+    const uploaded = withUploadPreview(files, await uploadInvoiceAttachments(files));
+    const recognizedCount = invoiceReferencesOf(uploaded).length;
+    if (!recognizedCount) throw new Error("未识别到有效发票，请重新上传");
     if (targetExpenseId.value) {
-      const prepared = prepareInvoiceLink(
+      const prepared = prepareInvoiceLinks(
         uploaded,
         Number(expenseForm.value.actual_amount),
         isNewSubstitute.value,
-        substituteReason.value
+        substituteReason.value,
+        Number(targetExpense.value?.allocated_amount || 0)
       );
-      await linkInvoiceToExpense(targetExpenseId.value, uploaded, prepared);
+      await linkInvoicesToExpense(targetExpenseId.value, prepared);
       await load();
-      success.value = "发票已上传并关联";
+      success.value = `已识别并关联 ${recognizedCount} 张发票`;
     } else {
-      stagedInvoice.value = uploaded;
-      success.value = "发票已上传并完成识别";
+      stagedInvoices.value = [...stagedInvoices.value, ...uploaded];
+      success.value = `已识别 ${stagedInvoiceItems.value.length} 张发票`;
     }
   } catch (err) {
     success.value = "";
@@ -511,8 +503,8 @@ async function saveNewExpense(submitAfter: boolean) {
     category: expenseForm.value.category,
     is_substitute: isNewSubstitute.value,
   };
-  const prepared = stagedInvoice.value
-    ? prepareInvoiceLink(stagedInvoice.value, actualAmount, isNewSubstitute.value, substituteReason.value)
+  const prepared = stagedInvoices.value.length
+    ? prepareInvoiceLinks(stagedInvoices.value, actualAmount, isNewSubstitute.value, substituteReason.value, 0, submitAfter)
     : null;
   const reason = (prepared?.note || substituteReason.value).trim();
   if (isNewSubstitute.value && amountsMismatch.value && !reason) {
@@ -520,12 +512,12 @@ async function saveNewExpense(submitAfter: boolean) {
     throw new Error("请填写替票说明后再提交");
   }
   if (submitAfter) {
-    if (!stagedInvoice.value || !prepared) throw new Error("请先上传发票");
+    if (!stagedInvoices.value.length || !prepared) throw new Error("请先上传发票");
     return createAndSubmitExpense({
       ...payload,
       is_substitute: isNewSubstitute.value,
       substitute_reason: reason,
-      invoices: [{ attachment_id: stagedInvoice.value.id, invoice_item_index: prepared.index }],
+      invoices: prepared.invoices,
       attachment_ids: evidenceAttachments.value.map((item) => item.id),
       note: prepared.note,
       buyer_confirmed: prepared.buyerConfirmed,
@@ -540,8 +532,8 @@ async function saveNewExpense(submitAfter: boolean) {
   if (evidenceAttachments.value.length) {
     created = await linkExpenseAttachments(created.id, { attachment_ids: evidenceAttachments.value.map((item) => item.id) });
   }
-  if (stagedInvoice.value) {
-    created = await linkInvoiceToExpense(created.id, stagedInvoice.value, prepared as PreparedInvoiceLink);
+  if (stagedInvoices.value.length) {
+    created = await linkInvoicesToExpense(created.id, prepared as PreparedInvoiceBatch);
   }
   return created;
 }
@@ -641,11 +633,6 @@ async function deleteRecord(record: Expense) {
   } finally {
     saving.value = false;
   }
-}
-
-function invoiceDetailText(keys: string[]): string {
-  const item = displayInvoiceDetailItem.value;
-  return item ? invoiceText(item, keys) : "待识别";
 }
 
 onMounted(() => {
@@ -768,7 +755,7 @@ function handleVisibilityChange() {
       </div>
 
       <input ref="evidenceInput" class="hidden" type="file" accept="image/*,.pdf" multiple @change="handleEvidenceInput" />
-      <input ref="invoiceInput" class="hidden" type="file" accept="image/*,.pdf" @change="handleInvoiceInput" />
+      <input ref="invoiceInput" class="hidden" type="file" accept="image/*,.pdf" multiple @change="handleInvoiceInput" />
       <div class="grid gap-px border-y border-slate-200 bg-slate-200 lg:grid-cols-2">
         <div class="space-y-3 bg-white p-5">
           <div class="flex items-center justify-between"><span class="field-label">上传佐证材料</span><span class="text-xs text-slate-500">可一次上传多张</span></div>
@@ -816,7 +803,7 @@ function handleVisibilityChange() {
         </div>
 
         <div class="space-y-3 bg-white p-5">
-          <div class="flex items-center justify-between"><span class="field-label">上传发票</span><span class="text-xs text-slate-500">一次上传 1 张</span></div>
+          <div class="flex items-center justify-between"><span class="field-label">上传发票</span><span class="text-xs text-slate-500">可多选，OCR 自动识别多张</span></div>
           <div
             class="upload-zone min-h-28 w-full border border-dashed transition"
             :class="invoiceDragging ? 'border-teal-600 bg-teal-50' : 'border-slate-300 bg-slate-50'"
@@ -825,23 +812,25 @@ function handleVisibilityChange() {
             @dragleave.prevent="invoiceDragging = false"
             @drop.prevent="handleInvoiceDrop"
           >
-            <div v-if="displayInvoiceAttachment" class="mx-auto w-full max-w-[260px] space-y-2 p-3">
+            <div v-if="displayInvoiceAttachments.length" class="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3">
               <UploadAttachmentTile
-                :attachment="displayInvoiceAttachment"
+                v-for="attachment in displayInvoiceAttachments"
+                :key="attachment.id"
+                :attachment="attachment"
                 :removable="canRemoveInvoice && !saving"
-                :removing="removingAttachmentId === displayInvoiceAttachment.id"
+                :removing="removingAttachmentId === attachment.id"
                 @preview="openAttachmentPreview"
                 @remove="removeInvoiceAttachment"
               />
               <button
-                v-if="canRemoveInvoice && !saving"
-                class="mx-auto flex items-center gap-1.5 text-xs font-medium text-rose-600 transition hover:text-rose-700"
-                :disabled="removingAttachmentId === displayInvoiceAttachment.id"
+                class="flex aspect-square flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-teal-600 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="invoiceUploadLocked"
                 type="button"
-                @click="removeInvoiceAttachment(displayInvoiceAttachment)"
+                @click="invoiceInput?.click()"
               >
-                <Loader2 v-if="removingAttachmentId === displayInvoiceAttachment.id" class="h-3.5 w-3.5 animate-spin" />
-                删除这张发票
+                <Loader2 v-if="saving" class="h-5 w-5 animate-spin" />
+                <FilePlus2 v-else class="h-5 w-5" />
+                <span class="mt-1 text-[11px] font-medium">继续上传</span>
               </button>
             </div>
             <button
@@ -853,15 +842,23 @@ function handleVisibilityChange() {
             >
               <Loader2 v-if="saving" class="h-5 w-5 animate-spin text-teal-700" />
               <FilePlus2 v-else class="h-5 w-5 text-teal-700" />
-              <span class="mt-2 text-sm font-medium text-slate-800">{{ invoiceDragging ? "松开上传" : "点击或拖拽上传 1 张发票" }}</span>
+              <span class="mt-2 text-sm font-medium text-slate-800">{{ invoiceDragging ? "松开上传" : "点击或拖拽上传发票（可多选）" }}</span>
             </button>
           </div>
-          <div v-if="displayInvoiceDetailItem" class="grid grid-cols-2 gap-x-4 gap-y-2 border-l-2 border-teal-600 bg-slate-50 px-3 py-3 text-xs text-slate-500">
-            <span>金额</span><strong class="text-right text-slate-900">{{ formatCurrency(Number(displayInvoiceDetailItem.amount)) }}</strong>
-            <span>发票号码</span><strong class="truncate text-right text-slate-900">{{ invoiceDetailText(["invoice_number", "number"]) }}</strong>
-            <span>项目名称</span><strong class="truncate text-right text-slate-900">{{ invoiceDetailText(["item_name", "goods_name", "title", "sub_type_description"]) }}</strong>
-            <span>销售方</span><strong class="truncate text-right text-slate-900">{{ invoiceDetailText(["seller", "seller_name"]) }}</strong>
-            <span>票种</span><strong class="truncate text-right text-slate-900">{{ invoiceDetailText(["sub_type_description", "type_description"]) }}</strong>
+          <div v-if="displayInvoiceItems.length" class="space-y-2">
+            <div class="flex items-center justify-between border-l-2 border-teal-600 bg-teal-50 px-3 py-2 text-xs">
+              <span class="text-teal-800">已识别 {{ displayInvoiceItems.length }} 张发票</span>
+              <strong class="text-teal-950">合计 {{ formatCurrency(linkedInvoiceAmount) }}</strong>
+            </div>
+            <div
+              v-for="invoice in displayInvoiceItems"
+              :key="`${invoice.attachment_id}-${invoice.invoice_item_index}`"
+              class="grid grid-cols-2 gap-x-4 gap-y-1.5 bg-slate-50 px-3 py-2 text-xs text-slate-500"
+            >
+              <span>发票号码</span><strong class="truncate text-right text-slate-900">{{ invoiceText(invoice.item, ["invoice_number", "number"]) }}</strong>
+              <span>金额</span><strong class="text-right text-slate-900">{{ formatCurrency(Number(invoice.item.amount)) }}</strong>
+              <span>销售方</span><strong class="truncate text-right text-slate-900">{{ invoiceText(invoice.item, ["seller", "seller_name"]) }}</strong>
+            </div>
           </div>
         </div>
       </div>
