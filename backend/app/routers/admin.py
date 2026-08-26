@@ -15,7 +15,7 @@ from app.expense_month_filter import expense_period_label
 from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExpenseBulkApproveResponse, ExpenseRejectRequest, ExpenseResponse, ExpenseReviewDetailResponse, ExportPreview, LedgerRow
 from app.security import hash_password
 from app.services.export_package import build_export_package
-from app.services.ledger import build_ledger_query, serialize_ledger_row
+from app.services.ledger import build_ledger_query, load_ledger_duplicate_sources, serialize_ledger_row
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -56,19 +56,27 @@ def ledger(
     admin=Depends(require_admin),
 ) -> list[LedgerRow]:
     query, params = build_ledger_query(
-        month,
-        company_entity,
-        employee,
-        category,
-        is_substitute,
-        has_duplicate,
-        record_status,
+        month=month,
+        company_entity=company_entity,
+        employee=employee,
+        category=category,
+        is_substitute=is_substitute,
+        has_duplicate=has_duplicate,
+        record_status=record_status,
         year=year,
         month_part=month_part,
     )
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
-        return [serialize_ledger_row(row, connection) for row in rows]
+        return [
+            serialize_ledger_row(
+                row,
+                load_ledger_duplicate_sources(connection, row["id"])
+                if row["has_duplicate"]
+                else [],
+            )
+            for row in rows
+        ]
 
 
 @router.get("/export/preview", response_model=ExportPreview)
@@ -80,8 +88,28 @@ def export_preview(
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> ExportPreview:
-    query, params = build_ledger_query(month, company_entity, None, None, None, None, "matched", year=year, month_part=month_part)
-    pending_query, pending_params = build_ledger_query(month, company_entity, None, None, None, None, "pending", year=year, month_part=month_part)
+    query, params = build_ledger_query(
+        month=month,
+        year=year,
+        month_part=month_part,
+        company_entity=company_entity,
+        employee=None,
+        category=None,
+        is_substitute=None,
+        has_duplicate=None,
+        record_status="matched",
+    )
+    pending_query, pending_params = build_ledger_query(
+        month=month,
+        year=year,
+        month_part=month_part,
+        company_entity=company_entity,
+        employee=None,
+        category=None,
+        is_substitute=None,
+        has_duplicate=None,
+        record_status="pending",
+    )
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
         pending_rows = connection.execute(pending_query, pending_params).fetchall()
@@ -104,7 +132,17 @@ def export_excel(
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> StreamingResponse:
-    query, params = build_ledger_query(month, company_entity, None, None, None, None, "matched", year=year, month_part=month_part)
+    query, params = build_ledger_query(
+        month=month,
+        year=year,
+        month_part=month_part,
+        company_entity=company_entity,
+        employee=None,
+        category=None,
+        is_substitute=None,
+        has_duplicate=None,
+        record_status="matched",
+    )
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
 
@@ -354,13 +392,13 @@ def approve_all_expenses(
         return ExpenseBulkApproveResponse(approved_count=0)
 
     query, params = build_ledger_query(
-        month,
-        company_entity,
-        employee,
-        category,
-        is_substitute,
-        has_duplicate,
-        "matched",
+        month=month,
+        company_entity=company_entity,
+        employee=employee,
+        category=category,
+        is_substitute=is_substitute,
+        has_duplicate=has_duplicate,
+        record_status="matched",
         year=year,
         month_part=month_part,
     )

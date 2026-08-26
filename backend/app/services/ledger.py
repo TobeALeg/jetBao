@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from app.expense_month_filter import apply_expense_month_filter, normalize_month, normalize_month_part, normalize_year
-from app.schemas import LedgerRow
+from app.schemas import DuplicateInfo, LedgerRow
+from app.services.duplicate_attachments import find_duplicate_sources
 
 
 def build_ledger_query(
+    *,
     month: str | None,
     company_entity: str | None,
     employee: str | None,
@@ -96,35 +98,32 @@ def build_ledger_query(
     return query, params
 
 
-def serialize_ledger_row(row, connection=None) -> LedgerRow:
-    ledger_duplicates: list = []
-    if row["has_duplicate"] and connection is not None:
-        from app.routers.attachments import find_duplicate_sources
+def load_ledger_duplicate_sources(connection, expense_id: int) -> list[DuplicateInfo]:
+    attachments = connection.execute(
+        """
+        SELECT a.id, a.file_hash, a.duplicate_count
+        FROM attachments a
+        JOIN expense_invoice_allocations ea ON ea.attachment_id = a.id
+        WHERE ea.expense_id = ?
+        """,
+        (expense_id,),
+    ).fetchall()
+    seen: dict[int, DuplicateInfo] = {}
+    for attachment in attachments:
+        if attachment["duplicate_count"] > 0:
+            for source in find_duplicate_sources(
+                connection,
+                attachment["file_hash"],
+                attachment["id"],
+            ):
+                seen.setdefault(source.attachment_id, source)
+    return list(seen.values())
 
-        attachments = connection.execute(
-            """
-            SELECT a.id, a.file_hash, a.duplicate_count
-            FROM attachments a
-            JOIN expense_invoice_allocations ea ON ea.attachment_id = a.id
-            WHERE ea.expense_id = ?
-            """,
-            (row["id"],),
-        ).fetchall()
-        seen: dict[int, dict] = {}
-        for attachment in attachments:
-            if attachment["duplicate_count"] > 0:
-                for source in find_duplicate_sources(
-                    connection,
-                    attachment["file_hash"],
-                    attachment["id"],
-                ):
-                    if source.attachment_id not in seen:
-                        seen[source.attachment_id] = {
-                            "attachment_id": source.attachment_id,
-                            "filename": source.filename,
-                            "employee_name": source.employee_name,
-                        }
-        ledger_duplicates = list(seen.values())
+
+def serialize_ledger_row(
+    row,
+    duplicate_sources: list[DuplicateInfo] | None = None,
+) -> LedgerRow:
     return LedgerRow(
         id=row["id"],
         company_entity=row["company_entity"],
@@ -143,7 +142,7 @@ def serialize_ledger_row(row, connection=None) -> LedgerRow:
         note=row["note"],
         status=row["status"],
         has_duplicate=bool(row["has_duplicate"]),
-        duplicate_of=ledger_duplicates,
+        duplicate_of=duplicate_sources or [],
         reject_reason=row["reject_reason"],
         reviewed_at=row["reviewed_at"],
         created_at=row["created_at"],

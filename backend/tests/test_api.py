@@ -397,34 +397,65 @@ def test_employee_ledger_only_returns_own_records(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     dandi = auth_headers(client, "Dandi", "dandi123")
     ouyang = auth_headers(client, "Ouyang", "ouyang123")
+    admin = auth_headers(client, "admin", "admin123")
 
     with client.app.state.db.connect() as connection:
         connection.execute("UPDATE users SET role = 'employee' WHERE username = 'Ouyang'")
 
-    for headers, project_name, month in (
-        (dandi, "管理员的项目", "2026-04"),
-        (ouyang, "员工自己的项目", "2026-05"),
-    ):
-        response = client.post(
-            "/api/expenses/drafts",
-            headers=headers,
-            json={
-                "project_name": project_name,
-                "category": "差旅交通",
-                "expense_month": month,
-                "actual_amount": 100,
-            },
+    dandi_expense = create_invoice_backed_expense(
+        client,
+        dandi,
+        user_id=2,
+        project_name="管理员的项目",
+        month="2026-06",
+        invoice_number="DANDI-PRIVATE",
+    )
+    ouyang_expense = create_invoice_backed_expense(
+        client,
+        ouyang,
+        user_id=3,
+        project_name="员工自己的项目",
+        month="2026-06",
+        invoice_number="OUYANG-OWN",
+    )
+    with client.app.state.db.connect() as connection:
+        dandi_attachment_id = connection.execute(
+            "SELECT attachment_id FROM expense_invoice_allocations WHERE expense_id = ?",
+            (dandi_expense["id"],),
+        ).fetchone()["attachment_id"]
+        ouyang_attachment_id = connection.execute(
+            "SELECT attachment_id FROM expense_invoice_allocations WHERE expense_id = ?",
+            (ouyang_expense["id"],),
+        ).fetchone()["attachment_id"]
+        connection.execute(
+            "UPDATE attachments SET file_hash = 'shared-private-hash' WHERE id IN (?, ?)",
+            (dandi_attachment_id, ouyang_attachment_id),
         )
-        assert response.status_code == 200
+        connection.execute(
+            "UPDATE attachments SET duplicate_count = 1 WHERE id = ?",
+            (ouyang_attachment_id,),
+        )
+        connection.execute(
+            "UPDATE expenses SET has_duplicate = 1 WHERE id = ?",
+            (ouyang_expense["id"],),
+        )
 
     own_ledger = client.get(
-        "/api/ledger?year=2026&status=pending&employee=艾丹迪",
+        "/api/ledger?month=2026-06&status=pending&employee=艾丹迪",
         headers=ouyang,
     )
 
     assert own_ledger.status_code == 200
     assert [row["project_name"] for row in own_ledger.json()] == ["员工自己的项目"]
     assert {row["employee_name"] for row in own_ledger.json()} == {"欧阳"}
+    assert own_ledger.json()[0]["duplicate_of"] == []
+
+    admin_ledger = client.get(
+        "/api/admin/ledger?month=2026-06&employee=欧阳",
+        headers=admin,
+    )
+    assert admin_ledger.status_code == 200
+    assert admin_ledger.json()[0]["duplicate_of"][0]["employee_name"] == "艾丹迪"
     assert client.get("/api/ledger").status_code == 401
 
 

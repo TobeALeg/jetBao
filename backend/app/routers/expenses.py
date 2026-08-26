@@ -24,6 +24,7 @@ from app.schemas import (
     PendingExpenseSubmitRequest,
 )
 from app.services.ledger import build_ledger_query, serialize_ledger_row
+from app.services.duplicate_attachments import find_duplicate_sources
 
 
 router = APIRouter(prefix="/api", tags=["expenses"])
@@ -115,8 +116,6 @@ def serialize_expense(expense, attachments, allocations: list[sqlite3.Row] | Non
     remaining_amount = max(round(float(expense["actual_amount"]) - allocated_amount, 2), 0)
     duplicate_of: list = []
     if expense["has_duplicate"] and connection is not None:
-        from app.routers.attachments import find_duplicate_sources
-
         seen: dict[int, dict] = {}
         all_attachment_ids = {att["id"] for att in attachments}
         for alloc in allocation_rows:
@@ -478,20 +477,20 @@ def list_own_ledger(
     user=Depends(get_current_user),
 ) -> list[LedgerRow]:
     query, params = build_ledger_query(
-        month,
-        None,
-        None,
-        category,
-        is_substitute,
-        has_duplicate,
-        record_status,
+        month=month,
+        company_entity=None,
+        employee=None,
+        category=category,
+        is_substitute=is_substitute,
+        has_duplicate=has_duplicate,
+        record_status=record_status,
         year=year,
         month_part=month_part,
         user_id=user["id"],
     )
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
-        return [serialize_ledger_row(row, connection) for row in rows]
+        return [serialize_ledger_row(row) for row in rows]
 
 
 @router.get("/invoice-pool", response_model=list[InvoicePoolItem])
@@ -530,8 +529,6 @@ def list_invoice_pool(request: Request, user=Depends(get_current_user)) -> list[
                 allocated_amount = _allocated_amount_for_invoice_item(connection, attachment["id"], index)
                 pool_duplicates: list = []
                 if attachment["duplicate_count"] > 0:
-                    from app.routers.attachments import find_duplicate_sources
-
                     pool_duplicates = find_duplicate_sources(connection, attachment["file_hash"], attachment["id"])
                 result.append(
                     InvoicePoolItem(
