@@ -12,8 +12,9 @@
 - `attachments`：上传文件，既可以是花费项目的交易记录，也可以被 OCR 识别为发票凭证；`pool_status = staged` 表示已上传已 OCR 但未入池，`pooled` 表示可进入发票池匹配。
 - `expense_attachments`：花费项目自己的交易记录附件，不表示发票抵扣关系。
 - `expense_invoice_allocations`：发票条目和花费项目之间的归属关系；同一发票条目只能归属一条花费。
-- 员工接口只读写当前用户自己的 `expenses`。
+- 员工接口只读写当前用户自己的 `expenses`；`GET /api/ledger` 在 SQL 查询中强制加入当前 `user_id`，供普通员工筛选自己的历史记录。
 - 管理员接口通过台账查询所有人的 `expenses`，但不切换身份。
+- `services/ledger.py`：员工个人台账与管理员全员台账共用的查询和序列化逻辑；调用方显式决定是否加入 `user_id` 数据边界。
 - `services/export_package.py`：管理员导出服务，从 `expenses`、`expense_attachments`、`expense_invoice_allocations` 生成多 Sheet Excel 和附件 ZIP。
 - Docker 部署由前端 Nginx 容器和后端 FastAPI 容器组成；本地 Compose 支持子路径，生产环境固定由 `jetbao.mentti.work` 根路径提供服务。
 - PR 运行后端测试、前端构建和容器构建；合并 `main` 后只发布 commit SHA 镜像到 GHCR，再由 GitHub Actions 通过专用 SSH 用户更新服务器。
@@ -35,7 +36,7 @@
 8. 员工提交：票面合计覆盖报销金额后，员工主动提交，状态从 `pending` 变为 `matched`。
 9. 管理审核：管理员可逐笔通过，或一键通过当前台账筛选范围内全部 `matched` 记录；审核在单事务中完成且可安全重试，`pending`/`reviewed` 不会被批量改写。通过后状态从 `matched` 变为 `reviewed`；员工撤回或管理员打回会回到 `pending` 并保留已匹配材料。
 10. 删除：员工可以删除 `pending` 花费记录、未匹配发票附件和花费记录里的交易附件；删除部分匹配花费会级联移除 `expense_invoice_allocations`，让已入池发票回到发票池。
-11. 管理台账：管理员按月份、公司、员工、类别、状态等条件查询 `expenses`，同时查看交易记录附件和发票匹配摘要。
+11. 报销台账：普通员工通过 `/api/ledger` 按年份、月份、类别、状态查询自己的 `expenses`；管理员通过 `/api/admin/ledger` 按月份、公司、员工、类别、状态查询全员记录。两者共用台账查询服务，同时查看交易记录附件和发票匹配摘要。
 12. 导出预览：后端统计 `matched` 和 `reviewed` 记录，同时返回筛选条件下的 `pending` 数量。
 13. 单 Excel 导出：`/api/admin/export.xlsx` 保留轻量台账文件。
 14. 明细包导出：`/api/admin/export-package.zip` 生成 `{期间}报销明细.xlsx`，附件按 `{公司}{期间}报销/{员工}{期间}报销/{报销类别}/{发票或佐证文件}` 归档；例如 `山途远智全部报销/夏莺萁全部报销/办公采购/快递发票20元.pdf`。外层压缩包按上海时区的当前月份命名为 `山途远智{当前月}月报销明细.zip`。交易记录附件来自 `expense_attachments`，发票文件来自 `expense_invoice_allocations`。

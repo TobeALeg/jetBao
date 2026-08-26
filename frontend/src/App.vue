@@ -11,7 +11,7 @@ import AdminUsersView from "./views/AdminUsersView.vue";
 import { clearToken, getMe, listExpenses, logout, markGuideSeen } from "./services/api";
 import type { Expense, User, ViewKey } from "./types";
 
-const ADMIN_ONLY_VIEWS: ViewKey[] = ["history", "admin-users"];
+const ADMIN_ONLY_VIEWS: ViewKey[] = ["admin-users"];
 
 const user = ref<User | null>(null);
 const currentView = ref<ViewKey>("monthly");
@@ -143,7 +143,6 @@ watch(
       @refreshed="loadExpenses()"
     />
     <HistoryView
-      v-if="user.role === 'admin'"
       v-show="currentView === 'history'"
       :user="user"
       :refresh-key="refreshKey"

@@ -11,10 +11,11 @@ from openpyxl import Workbook
 
 from app.company_entities import is_allowed_company_entity, normalize_company_entity
 from app.dependencies import require_admin
-from app.expense_month_filter import apply_expense_month_filter, expense_period_label, normalize_month, normalize_month_part, normalize_year
+from app.expense_month_filter import expense_period_label
 from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExpenseBulkApproveResponse, ExpenseRejectRequest, ExpenseResponse, ExpenseReviewDetailResponse, ExportPreview, LedgerRow
 from app.security import hash_password
 from app.services.export_package import build_export_package
+from app.services.ledger import build_ledger_query, serialize_ledger_row
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -40,140 +41,6 @@ def _normalize_enterprise_email(email: str | None, expected_domain: str) -> str 
     return normalized
 
 
-def _ledger_query(
-    month: str | None,
-    company_entity: str | None,
-    employee: str | None,
-    category: str | None,
-    is_substitute: bool | None,
-    has_duplicate: bool | None,
-    record_status: str | None,
-    year: str | None = None,
-    month_part: str | None = None,
-) -> tuple[str, list[object]]:
-    where = []
-    params: list[object] = []
-    apply_expense_month_filter(
-        where,
-        params,
-        month=normalize_month(month),
-        year=normalize_year(year),
-        month_part=normalize_month_part(month_part),
-    )
-    if company_entity:
-        where.append("expenses.company_entity = ?")
-        params.append(company_entity)
-    if employee:
-        where.append("users.employee_name LIKE ?")
-        params.append(f"%{employee}%")
-    if category:
-        where.append("expenses.category = ?")
-        params.append(category)
-    if is_substitute is not None:
-        where.append("expenses.is_substitute = ?")
-        params.append(int(is_substitute))
-    if has_duplicate is not None:
-        where.append("expenses.has_duplicate = ?")
-        params.append(int(has_duplicate))
-    if record_status:
-        where.append("expenses.status = ?")
-        params.append(record_status)
-
-    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
-    query = f"""
-        SELECT
-            expenses.id,
-            expenses.company_entity,
-            users.employee_name,
-            expenses.project_name,
-            expenses.category,
-            expenses.expense_month,
-            expenses.actual_amount,
-            expenses.invoice_amount,
-            expenses.invoice_buyer,
-            expenses.invoice_number,
-            expenses.invoice_date,
-            expenses.invoice_type,
-            expenses.is_substitute,
-            expenses.substitute_reason,
-            expenses.note,
-            expenses.status,
-            expenses.has_duplicate,
-            expenses.created_at,
-            COALESCE((
-                SELECT GROUP_CONCAT(attachments.original_filename, '、')
-                FROM expense_attachments
-                JOIN attachments ON attachments.id = expense_attachments.attachment_id
-                WHERE expense_attachments.expense_id = expenses.id
-            ), '') AS attachment_names,
-            COALESCE((
-                SELECT GROUP_CONCAT(
-                    CASE
-                        WHEN expense_invoice_allocations.invoice_number != ''
-                        THEN expense_invoice_allocations.invoice_number
-                        ELSE '发票'
-                    END || ':' || expense_invoice_allocations.allocated_amount,
-                    '、'
-                )
-                FROM expense_invoice_allocations
-                WHERE expense_invoice_allocations.expense_id = expenses.id
-            ), '') AS allocation_summary
-        FROM expenses
-        JOIN users ON users.id = expenses.user_id
-        {where_sql}
-        ORDER BY expenses.created_at DESC
-    """
-    return query, params
-
-
-def _serialize_ledger_row(row, connection=None) -> LedgerRow:
-    ledger_duplicates: list = []
-    if row["has_duplicate"] and connection is not None:
-        from app.routers.attachments import find_duplicate_sources
-
-        attachments = connection.execute(
-            """
-            SELECT a.id, a.file_hash, a.duplicate_count
-            FROM attachments a
-            JOIN expense_invoice_allocations ea ON ea.attachment_id = a.id
-            WHERE ea.expense_id = ?
-            """,
-            (row["id"],),
-        ).fetchall()
-        seen: dict[int, dict] = {}
-        for att in attachments:
-            if att["duplicate_count"] > 0:
-                for src in find_duplicate_sources(connection, att["file_hash"], att["id"]):
-                    if src.attachment_id not in seen:
-                        seen[src.attachment_id] = {"attachment_id": src.attachment_id, "filename": src.filename, "employee_name": src.employee_name}
-        ledger_duplicates = list(seen.values())
-    return LedgerRow(
-        id=row["id"],
-        company_entity=row["company_entity"],
-        employee_name=row["employee_name"],
-        project_name=row["project_name"],
-        category=row["category"],
-        expense_month=row["expense_month"],
-        actual_amount=row["actual_amount"],
-        invoice_amount=row["invoice_amount"],
-        invoice_buyer=row["invoice_buyer"],
-        invoice_number=row["invoice_number"],
-        invoice_date=row["invoice_date"],
-        invoice_type=row["invoice_type"],
-        is_substitute=bool(row["is_substitute"]),
-        substitute_reason=row["substitute_reason"],
-        note=row["note"],
-        status=row["status"],
-        has_duplicate=bool(row["has_duplicate"]),
-        duplicate_of=ledger_duplicates,
-        reject_reason=row["reject_reason"] if "reject_reason" in row.keys() else "",
-        reviewed_at=row["reviewed_at"] if "reviewed_at" in row.keys() else "",
-        created_at=row["created_at"],
-        attachment_names=row["attachment_names"],
-        allocation_summary=row["allocation_summary"],
-    )
-
-
 @router.get("/ledger", response_model=list[LedgerRow])
 def ledger(
     request: Request,
@@ -188,7 +55,7 @@ def ledger(
     record_status: str | None = Query(default=None, alias="status"),
     admin=Depends(require_admin),
 ) -> list[LedgerRow]:
-    query, params = _ledger_query(
+    query, params = build_ledger_query(
         month,
         company_entity,
         employee,
@@ -201,7 +68,7 @@ def ledger(
     )
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
-    return [_serialize_ledger_row(row, connection) for row in rows]
+        return [serialize_ledger_row(row, connection) for row in rows]
 
 
 @router.get("/export/preview", response_model=ExportPreview)
@@ -213,8 +80,8 @@ def export_preview(
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> ExportPreview:
-    query, params = _ledger_query(month, company_entity, None, None, None, None, "matched", year=year, month_part=month_part)
-    pending_query, pending_params = _ledger_query(month, company_entity, None, None, None, None, "pending", year=year, month_part=month_part)
+    query, params = build_ledger_query(month, company_entity, None, None, None, None, "matched", year=year, month_part=month_part)
+    pending_query, pending_params = build_ledger_query(month, company_entity, None, None, None, None, "pending", year=year, month_part=month_part)
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
         pending_rows = connection.execute(pending_query, pending_params).fetchall()
@@ -237,7 +104,7 @@ def export_excel(
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> StreamingResponse:
-    query, params = _ledger_query(month, company_entity, None, None, None, None, "matched", year=year, month_part=month_part)
+    query, params = build_ledger_query(month, company_entity, None, None, None, None, "matched", year=year, month_part=month_part)
     with request.app.state.db.connect() as connection:
         rows = connection.execute(query, params).fetchall()
 
@@ -486,7 +353,7 @@ def approve_all_expenses(
     if record_status and record_status != "matched":
         return ExpenseBulkApproveResponse(approved_count=0)
 
-    query, params = _ledger_query(
+    query, params = build_ledger_query(
         month,
         company_entity,
         employee,

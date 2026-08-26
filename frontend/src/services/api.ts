@@ -305,6 +305,15 @@ export async function listLedger(filters: Record<string, string>): Promise<Ledge
   return request(`/admin/ledger${query ? `?${query}` : ""}`);
 }
 
+export async function listOwnLedger(filters: Record<string, string>): Promise<LedgerRow[]> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const query = params.toString();
+  return request(`/ledger${query ? `?${query}` : ""}`);
+}
+
 export async function getExportPreview(filters: Record<string, string>): Promise<ExportPreview> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {

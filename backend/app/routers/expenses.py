@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 
 from app.company_entities import invoice_buyer_match_status, normalize_company_title
 from app.dependencies import get_current_user
@@ -20,8 +20,10 @@ from app.schemas import (
     ExpenseResponse,
     ExpenseSubmitRequest,
     InvoicePoolItem,
+    LedgerRow,
     PendingExpenseSubmitRequest,
 )
+from app.services.ledger import build_ledger_query, serialize_ledger_row
 
 
 router = APIRouter(prefix="/api", tags=["expenses"])
@@ -461,6 +463,35 @@ def list_expenses(request: Request, user=Depends(get_current_user)) -> list[Expe
             allocations = _allocation_rows_for_expense(connection, expense["id"])
             result.append(serialize_expense(expense, attachments, allocations, connection))
     return result
+
+
+@router.get("/ledger", response_model=list[LedgerRow])
+def list_own_ledger(
+    request: Request,
+    month: str | None = None,
+    year: str | None = None,
+    month_part: str | None = None,
+    category: str | None = None,
+    is_substitute: bool | None = Query(default=None),
+    has_duplicate: bool | None = Query(default=None),
+    record_status: str | None = Query(default=None, alias="status"),
+    user=Depends(get_current_user),
+) -> list[LedgerRow]:
+    query, params = build_ledger_query(
+        month,
+        None,
+        None,
+        category,
+        is_substitute,
+        has_duplicate,
+        record_status,
+        year=year,
+        month_part=month_part,
+        user_id=user["id"],
+    )
+    with request.app.state.db.connect() as connection:
+        rows = connection.execute(query, params).fetchall()
+        return [serialize_ledger_row(row, connection) for row in rows]
 
 
 @router.get("/invoice-pool", response_model=list[InvoicePoolItem])

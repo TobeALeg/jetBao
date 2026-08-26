@@ -106,7 +106,7 @@ onMounted(load);
 <template>
   <div class="mx-auto max-w-7xl space-y-5">
     <div>
-      <h1 class="page-title">管理</h1>
+      <h1 class="page-title">人员管理</h1>
       <p class="muted mt-1">员工账号、角色和公司主体维护。</p>
     </div>
 
