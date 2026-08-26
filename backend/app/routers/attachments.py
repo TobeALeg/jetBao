@@ -11,24 +11,11 @@ from fastapi.responses import FileResponse
 
 from app.dependencies import get_current_user
 from app.schemas import AttachmentPoolRequest, AttachmentResponse, DuplicateInfo
+from app.services.duplicate_attachments import find_duplicate_sources
 from app.services.ocr import OcrService, OcrServiceConfig
 
 
 router = APIRouter(prefix="/api", tags=["attachments"])
-
-
-def find_duplicate_sources(connection, file_hash: str, exclude_id: int) -> list[DuplicateInfo]:
-    rows = connection.execute(
-        """
-        SELECT a.id, a.original_filename, u.employee_name
-        FROM attachments a
-        JOIN users u ON u.id = a.user_id
-        WHERE a.file_hash = ? AND a.id != ? AND a.id < ?
-        ORDER BY a.id
-        """,
-        (file_hash, exclude_id, exclude_id),
-    ).fetchall()
-    return [DuplicateInfo(attachment_id=r["id"], filename=r["original_filename"], employee_name=r["employee_name"]) for r in rows]
 
 
 def _attachment_response(row, connection=None) -> AttachmentResponse:

@@ -25,8 +25,8 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { key: "monthly", label: "个人报销", icon: Home },
-  { key: "history", label: "报销记录总览", icon: ReceiptText, adminOnly: true },
-  { key: "admin-users", label: "管理", icon: ShieldCheck, adminOnly: true },
+  { key: "history", label: "报销记录", icon: ReceiptText },
+  { key: "admin-users", label: "人员管理", icon: ShieldCheck, adminOnly: true },
   { key: "guide", label: "使用指南", icon: BookOpen },
   { key: "settings", label: "个人设置", icon: Settings },
 ];

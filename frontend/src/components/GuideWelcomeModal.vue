@@ -77,7 +77,7 @@ const isAdmin = computed(() => props.user.role === "admin");
           <section v-if="isAdmin" class="rounded-xl border border-teal-100 bg-teal-50/50 p-4">
             <div class="mb-2 flex items-center gap-2 font-semibold text-teal-900">
               <ReceiptText class="h-4 w-4" />
-              管理员：报销记录总览
+              管理员：全员报销记录
             </div>
             <ul class="space-y-1.5">
               <li>查看全员报销，按月份 / 员工 / 状态筛选。</li>
@@ -89,9 +89,9 @@ const isAdmin = computed(() => props.user.role === "admin");
           <section v-if="isAdmin" class="rounded-xl border border-slate-200 p-4">
             <div class="mb-2 flex items-center gap-2 font-semibold text-slate-900">
               <ShieldCheck class="h-4 w-4 text-teal-700" />
-              管理员：用户管理
+              管理员：人员管理
             </div>
-            <p>在「管理」页创建员工 / 管理员账号，设置公司主体与角色。</p>
+            <p>在「人员管理」页创建员工 / 管理员账号，设置公司主体与角色。</p>
           </section>
 
           <section class="rounded-xl border border-slate-200 p-4">

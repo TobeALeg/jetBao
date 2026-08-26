@@ -7,6 +7,7 @@ import {
   approveAllExpenses,
   downloadExportPackage,
   listLedger,
+  listOwnLedger,
   rejectExpense,
   unreviewExpense,
 } from "../services/api";
@@ -44,10 +45,14 @@ const appliedQueryParams = ref<Record<string, string> | null>(null);
 
 const expandedMonths = ref(new Set<string>());
 const currentMonth = new Date().toISOString().slice(0, 7);
+const FIRST_EXPENSE_YEAR = 2026;
 
 const yearOptions = computed(() => {
-  const currentYear = new Date().getFullYear();
-  return Array.from({ length: 8 }, (_, index) => String(currentYear - index));
+  const currentYear = Math.max(new Date().getFullYear(), FIRST_EXPENSE_YEAR);
+  return Array.from(
+    { length: currentYear - FIRST_EXPENSE_YEAR + 1 },
+    (_, index) => String(currentYear - index)
+  );
 });
 
 const monthOptions = computed(() =>
@@ -110,14 +115,15 @@ const resultsAreCurrent = computed(
 );
 
 async function search() {
-  if (!isAdmin.value) return;
   const searchId = ++latestSearchId.value;
   const querySnapshot = { ...ledgerQueryParams.value };
   loading.value = true;
   error.value = "";
   success.value = "";
   try {
-    const result = await listLedger(querySnapshot);
+    const result = isAdmin.value
+      ? await listLedger(querySnapshot)
+      : await listOwnLedger(querySnapshot);
     if (searchId !== latestSearchId.value) return;
     rows.value = result;
     appliedQueryParams.value = querySnapshot;
@@ -283,7 +289,7 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
   <div class="mx-auto w-full max-w-[88rem] space-y-5">
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 class="page-title">报销记录总览</h1>
+        <h1 class="page-title">{{ isAdmin ? "报销记录总览" : "我的报销记录" }}</h1>
         <p class="muted mt-1">{{ isAdmin ? "所有人的报销记录，可按年份、月份筛选并归档查看。" : "查看你的历史报销记录。" }}</p>
       </div>
       <div v-if="isAdmin" class="flex flex-wrap items-center gap-2">
@@ -404,7 +410,7 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
                 <col class="w-[4.5rem]" />
                 <col class="w-[5.5rem]" />
                 <col class="w-[8rem]" />
-                <col class="w-[13.5rem]" />
+                <col v-if="isAdmin" class="w-[13.5rem]" />
               </colgroup>
               <thead class="bg-slate-50 text-xs font-medium text-slate-500">
                 <tr>
@@ -416,7 +422,7 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
                   <th class="px-4 py-3">替票</th>
                   <th class="px-4 py-3">状态</th>
                   <th class="px-4 py-3">时间</th>
-                  <th class="px-4 py-3">操作</th>
+                  <th v-if="isAdmin" class="px-4 py-3">操作</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 bg-white">
@@ -449,8 +455,8 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
                     <div v-if="row.reject_reason" class="mt-1 truncate text-xs text-rose-600" :title="row.reject_reason">打回：{{ row.reject_reason }}</div>
                   </td>
                   <td class="whitespace-nowrap px-4 py-3 text-slate-500">{{ formatDate(row.created_at) }}</td>
-                  <td class="whitespace-nowrap px-4 py-3">
-                    <div v-if="isAdmin" class="flex flex-nowrap items-center gap-1.5">
+                  <td v-if="isAdmin" class="whitespace-nowrap px-4 py-3">
+                    <div class="flex flex-nowrap items-center gap-1.5">
                       <button
                         v-if="row.status === 'matched' || row.status === 'reviewed'"
                         class="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 px-2 text-xs text-slate-600 transition hover:bg-slate-100"

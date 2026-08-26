@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 
 from app.company_entities import invoice_buyer_match_status, normalize_company_title
 from app.dependencies import get_current_user
@@ -20,8 +20,11 @@ from app.schemas import (
     ExpenseResponse,
     ExpenseSubmitRequest,
     InvoicePoolItem,
+    LedgerRow,
     PendingExpenseSubmitRequest,
 )
+from app.services.ledger import build_ledger_query, serialize_ledger_row
+from app.services.duplicate_attachments import find_duplicate_sources
 
 
 router = APIRouter(prefix="/api", tags=["expenses"])
@@ -113,8 +116,6 @@ def serialize_expense(expense, attachments, allocations: list[sqlite3.Row] | Non
     remaining_amount = max(round(float(expense["actual_amount"]) - allocated_amount, 2), 0)
     duplicate_of: list = []
     if expense["has_duplicate"] and connection is not None:
-        from app.routers.attachments import find_duplicate_sources
-
         seen: dict[int, dict] = {}
         all_attachment_ids = {att["id"] for att in attachments}
         for alloc in allocation_rows:
@@ -463,6 +464,35 @@ def list_expenses(request: Request, user=Depends(get_current_user)) -> list[Expe
     return result
 
 
+@router.get("/ledger", response_model=list[LedgerRow])
+def list_own_ledger(
+    request: Request,
+    month: str | None = None,
+    year: str | None = None,
+    month_part: str | None = None,
+    category: str | None = None,
+    is_substitute: bool | None = Query(default=None),
+    has_duplicate: bool | None = Query(default=None),
+    record_status: str | None = Query(default=None, alias="status"),
+    user=Depends(get_current_user),
+) -> list[LedgerRow]:
+    query, params = build_ledger_query(
+        month=month,
+        company_entity=None,
+        employee=None,
+        category=category,
+        is_substitute=is_substitute,
+        has_duplicate=has_duplicate,
+        record_status=record_status,
+        year=year,
+        month_part=month_part,
+        user_id=user["id"],
+    )
+    with request.app.state.db.connect() as connection:
+        rows = connection.execute(query, params).fetchall()
+        return [serialize_ledger_row(row) for row in rows]
+
+
 @router.get("/invoice-pool", response_model=list[InvoicePoolItem])
 def list_invoice_pool(request: Request, user=Depends(get_current_user)) -> list[InvoicePoolItem]:
     with request.app.state.db.connect() as connection:
@@ -499,8 +529,6 @@ def list_invoice_pool(request: Request, user=Depends(get_current_user)) -> list[
                 allocated_amount = _allocated_amount_for_invoice_item(connection, attachment["id"], index)
                 pool_duplicates: list = []
                 if attachment["duplicate_count"] > 0:
-                    from app.routers.attachments import find_duplicate_sources
-
                     pool_duplicates = find_duplicate_sources(connection, attachment["file_hash"], attachment["id"])
                 result.append(
                     InvoicePoolItem(

@@ -26,6 +26,7 @@ const employeeSections = [
   { id: "overview", label: "系统简介" },
   { id: "login", label: "登录与账号" },
   { id: "submit", label: "提交报销" },
+  { id: "ledger", label: "报销记录" },
   { id: "status", label: "记录状态" },
   { id: "reject", label: "打回与修改" },
   { id: "faq", label: "常见问题" },
@@ -38,7 +39,7 @@ const adminSections = [
   { id: "ledger", label: "报销总览" },
   { id: "review", label: "审核与预览" },
   { id: "export", label: "导出归档" },
-  { id: "users", label: "用户管理" },
+  { id: "users", label: "人员管理" },
   { id: "status", label: "状态说明" },
   { id: "faq", label: "常见问题" },
 ];
@@ -60,7 +61,7 @@ function scrollTo(id: string) {
         <div class="min-w-0 flex-1">
           <h1 class="page-title">使用指南</h1>
           <p class="muted mt-2 max-w-2xl">
-            JetBao 内部报销整理系统使用说明。{{ isAdmin ? "你当前为管理员，可查看全员台账、审核报销并管理账号。" : "你当前为员工，可在个人报销页提交与跟踪自己的报销。" }}
+            JetBao 内部报销整理系统使用说明。{{ isAdmin ? "你当前为管理员，可查看全员台账、审核报销并管理账号。" : "你当前为员工，可提交报销并查看自己的过往记录。" }}
           </p>
         </div>
       </div>
@@ -108,6 +109,7 @@ function scrollTo(id: string) {
                 <p class="text-xs font-semibold text-slate-500">员工可访问</p>
                 <ul class="guide-list mt-2">
                   <li><Home class="guide-inline-icon" /> 个人报销</li>
+                  <li><ReceiptText class="guide-inline-icon" /> 自己的报销记录</li>
                   <li><BookOpen class="guide-inline-icon" /> 使用指南</li>
                   <li><Settings class="guide-inline-icon" /> 个人设置</li>
                 </ul>
@@ -115,8 +117,8 @@ function scrollTo(id: string) {
               <div class="rounded-lg border border-teal-100 bg-teal-50/60 p-4">
                 <p class="text-xs font-semibold text-teal-700">管理员额外可访问</p>
                 <ul class="guide-list mt-2">
-                  <li><ReceiptText class="guide-inline-icon" /> 报销记录总览</li>
-                  <li><ShieldCheck class="guide-inline-icon" /> 管理（用户与权限）</li>
+                  <li><ReceiptText class="guide-inline-icon" /> 全员报销记录与审核</li>
+                  <li><ShieldCheck class="guide-inline-icon" /> 人员管理（用户与权限）</li>
                 </ul>
               </div>
             </div>
@@ -182,18 +184,20 @@ function scrollTo(id: string) {
           </div>
         </section>
 
-        <!-- 管理员：报销总览 -->
-        <section v-if="isAdmin" id="ledger" class="guide-section scroll-mt-6">
+        <!-- 报销记录 -->
+        <section id="ledger" class="guide-section scroll-mt-6">
           <div class="guide-section-head">
             <ReceiptText class="h-5 w-5 text-teal-700" />
-            <h2>报销记录总览</h2>
+            <h2>{{ isAdmin ? "报销记录总览" : "我的报销记录" }}</h2>
           </div>
           <div class="guide-card space-y-4">
-            <p>查看<strong>所有人</strong>的报销记录，按年份、月份、公司主体、员工、状态筛选。记录按月份分组展开，可查看每笔金额与发票摘要。</p>
+            <p v-if="isAdmin">查看<strong>所有人</strong>的报销记录，按年份、月份、公司主体、员工、状态筛选。记录按月份分组展开，可查看每笔金额与发票摘要。</p>
+            <p v-else>进入「报销记录」可查看<strong>仅属于你自己</strong>的过往报销，按年份、月份和状态筛选。记录按月份分组展开，可查看每笔金额与发票摘要。</p>
             <ul class="guide-list">
               <li>筛选后点击「查询」刷新列表；切换筛选条件会自动查询。</li>
               <li>「已提交」状态的记录等待管理员审核。</li>
               <li>「已完成」为审核通过记录，表格中以灰色显示。</li>
+              <li v-if="!isAdmin">其他员工的记录不会出现在你的列表中。</li>
             </ul>
           </div>
         </section>
@@ -230,14 +234,14 @@ function scrollTo(id: string) {
           </div>
         </section>
 
-        <!-- 管理员：用户管理 -->
+        <!-- 管理员：人员管理 -->
         <section v-if="isAdmin" id="users" class="guide-section scroll-mt-6">
           <div class="guide-section-head">
             <Users class="h-5 w-5 text-teal-700" />
-            <h2>用户管理</h2>
+            <h2>人员管理</h2>
           </div>
           <div class="guide-card space-y-4">
-            <p>在「管理」页可创建账号、修改角色与公司主体、重置密码或停用账号。</p>
+            <p>在「人员管理」页可创建账号、修改角色与公司主体、重置密码或停用账号。</p>
             <div class="overflow-hidden rounded-lg border border-slate-200">
               <table class="min-w-full text-left text-sm">
                 <thead class="bg-slate-50 text-xs text-slate-500">
@@ -253,7 +257,7 @@ function scrollTo(id: string) {
                   </tr>
                   <tr>
                     <td class="px-4 py-3 font-medium">管理员</td>
-                    <td class="px-4 py-3 text-slate-600">上述全部 + 报销总览、审核、导出、用户管理</td>
+                    <td class="px-4 py-3 text-slate-600">上述全部 + 全员报销记录、审核、导出、人员管理</td>
                   </tr>
                 </tbody>
               </table>
@@ -328,8 +332,8 @@ function scrollTo(id: string) {
               <p>在管理员审核前，可在「本月记录」点击「撤回」，回到待处理状态后再修改。审核通过后不可修改。</p>
             </div>
             <div v-if="isAdmin" class="guide-faq-item">
-              <h3>员工能看到报销总览吗？</h3>
-              <p>不能。报销记录总览、审核与导出仅管理员可见；员工只在个人报销页管理自己的记录。</p>
+              <h3>员工能看到其他人的报销记录吗？</h3>
+              <p>不能。普通员工只能在「报销记录」查看自己的历史记录；全员记录、审核与导出仍仅管理员可用。</p>
             </div>
             <div class="guide-faq-item">
               <h3>遇到问题找谁？</h3>

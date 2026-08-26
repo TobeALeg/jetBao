@@ -296,13 +296,21 @@ export async function getAttachmentObjectUrl(id: number): Promise<{ url: string;
   };
 }
 
-export async function listLedger(filters: Record<string, string>): Promise<LedgerRow[]> {
+function ledgerPath(path: string, filters: Record<string, string>): string {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value) params.set(key, value);
   });
   const query = params.toString();
-  return request(`/admin/ledger${query ? `?${query}` : ""}`);
+  return `${path}${query ? `?${query}` : ""}`;
+}
+
+export async function listLedger(filters: Record<string, string>): Promise<LedgerRow[]> {
+  return request(ledgerPath("/admin/ledger", filters));
+}
+
+export async function listOwnLedger(filters: Record<string, string>): Promise<LedgerRow[]> {
+  return request(ledgerPath("/ledger", filters));
 }
 
 export async function getExportPreview(filters: Record<string, string>): Promise<ExportPreview> {
