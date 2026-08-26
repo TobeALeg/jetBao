@@ -45,10 +45,14 @@ const appliedQueryParams = ref<Record<string, string> | null>(null);
 
 const expandedMonths = ref(new Set<string>());
 const currentMonth = new Date().toISOString().slice(0, 7);
+const FIRST_EXPENSE_YEAR = 2026;
 
 const yearOptions = computed(() => {
-  const currentYear = new Date().getFullYear();
-  return Array.from({ length: 8 }, (_, index) => String(currentYear - index));
+  const currentYear = Math.max(new Date().getFullYear(), FIRST_EXPENSE_YEAR);
+  return Array.from(
+    { length: currentYear - FIRST_EXPENSE_YEAR + 1 },
+    (_, index) => String(currentYear - index)
+  );
 });
 
 const monthOptions = computed(() =>
