@@ -177,7 +177,7 @@ function scrollTo(id: string) {
                 <h3 class="guide-subtitle">替票选「否」</h3>
                 <p class="mt-2 text-sm text-slate-600">一张发票只能用于一笔报销；一笔报销可包含多张发票，票面合计须与报销金额<strong>完全一致</strong>。</p>
               </div>
-              <div class="rounded-control border border-state-warn-line bg-state-warn-soft p-4">
+              <div class="rounded-control border border-hairline bg-white p-4">
                 <h3 class="guide-subtitle text-state-warn-ink">替票选「是」</h3>
                 <p class="mt-2 text-sm text-slate-600">发票与报销金额不一致时，需填写<strong>替票说明</strong>后再提交。</p>
               </div>

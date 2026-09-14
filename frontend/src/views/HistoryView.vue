@@ -186,7 +186,7 @@ function statusBarClass(status: string, rejectReason = ""): string {
   if (status === "pending" && rejectReason) return "border-l-rose-600";
   if (status === "reviewed") return "border-l-slate-300";
   if (status === "matched") return "border-l-slate-300";
-  return "border-l-amber-500";
+  return "border-l-amber-600";
 }
 
 function employeeRowClass(row: LedgerRow): string {
