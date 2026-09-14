@@ -535,7 +535,7 @@ def test_employee_ledger_only_returns_own_records(tmp_path, monkeypatch):
         )
 
     own_ledger = client.get(
-        "/api/ledger?month=2026-06&status=pending&employee=艾丹迪",
+        "/api/ledger?month=2026-06&status=pending&employee_id=2",
         headers=ouyang,
     )
 
@@ -545,7 +545,7 @@ def test_employee_ledger_only_returns_own_records(tmp_path, monkeypatch):
     assert own_ledger.json()[0]["duplicate_of"] == []
 
     admin_ledger = client.get(
-        "/api/admin/ledger?month=2026-06&employee=欧阳",
+        "/api/admin/ledger?month=2026-06&employee_id=3",
         headers=admin,
     )
     assert admin_ledger.status_code == 200
@@ -632,7 +632,7 @@ def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
     )
     assert draft.status_code == 200
 
-    ledger = client.get("/api/admin/ledger?month=2026-05&employee=艾丹迪&status=matched", headers=admin)
+    ledger = client.get("/api/admin/ledger?month=2026-05&employee_id=2&status=matched", headers=admin)
     assert ledger.status_code == 200
     assert len(ledger.json()) == 1
     assert ledger.json()[0]["employee_name"] == "艾丹迪"
@@ -2014,6 +2014,61 @@ def test_sso_employee_list_only_displays_names_from_mentihub(tmp_path, monkeypat
     assert admin["employee_name"] == ""
 
 
+def test_ledger_employee_filter_uses_stable_identity_across_name_drift(tmp_path, monkeypatch):
+    """报销记录按员工筛选必须走稳定 user_id，不能依赖会漂移的姓名。"""
+    client = make_client(tmp_path, monkeypatch, auth_mode="sso")
+    from app.security import create_token
+
+    provision_email(client, "Dandi", "dandi@mentitrek.com")
+    with client.app.state.db.connect() as connection:
+        connection.execute(
+            "UPDATE users SET identity_id = ?, employee_name = ? WHERE username = 'Dandi'",
+            ("usr-dandi", "艾丹迪"),
+        )
+        dandi_id = connection.execute("SELECT id FROM users WHERE username = 'Dandi'").fetchone()["id"]
+
+    # MentiHub 目录里的姓名与本地库姓名不一致（改名后尚未重新登录的典型状态）。
+    client.app.state.sso_client = StubSsoClient(
+        {},
+        members=[
+            {
+                "subject": "usr-dandi",
+                "email": "dandi@mentitrek.com",
+                "display_name": "MentiHub 新姓名",
+                "active": True,
+            }
+        ],
+    )
+
+    client.cookies.set("jetbao_session", create_token(dandi_id, "test-secret"))
+    created = client.post(
+        "/api/expenses",
+        json={
+            "project_name": "姓名漂移回归",
+            "category": "AI 项目",
+            "expense_month": "2026-05",
+            "actual_amount": 100,
+        },
+    )
+    assert created.status_code == 200
+    # 台账展示的是创建时的姓名快照（旧姓名）。
+    assert created.json()["employee_name"] == "艾丹迪"
+
+    client.cookies.set("jetbao_session", create_token(1, "test-secret"))
+    # 下拉选项来自 /api/admin/users，展示 MentiHub 目录姓名。
+    users = client.get("/api/admin/users").json()
+    dandi_option = next(user for user in users if user["id"] == dandi_id)
+    assert dandi_option["employee_name"] == "MentiHub 新姓名"
+
+    by_identity = client.get("/api/admin/ledger", params={"employee_id": dandi_id})
+    assert by_identity.status_code == 200
+    assert [row["project_name"] for row in by_identity.json()] == ["姓名漂移回归"]
+
+    other_identity = client.get("/api/admin/ledger", params={"employee_id": 999})
+    assert other_identity.status_code == 200
+    assert other_identity.json() == []
+
+
 def test_sso_admin_must_preprovision_a_corporate_email(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch, auth_mode="sso")
     from app.security import create_token
@@ -2173,14 +2228,14 @@ def test_admin_bulk_approve_respects_ledger_filters_permissions_and_is_idempoten
     assert forbidden.status_code == 403
 
     approved = client.post(
-        "/api/admin/expense-reviews/approve-all?month=2026-05&employee=艾丹迪",
+        f"/api/admin/expense-reviews/approve-all?month=2026-05&employee_id={dandi['id']}",
         headers=admin,
     )
     assert approved.status_code == 200
     assert approved.json() == {"approved_count": 1}
 
     repeated = client.post(
-        "/api/admin/expense-reviews/approve-all?month=2026-05&employee=艾丹迪",
+        f"/api/admin/expense-reviews/approve-all?month=2026-05&employee_id={dandi['id']}",
         headers=admin,
     )
     assert repeated.status_code == 200

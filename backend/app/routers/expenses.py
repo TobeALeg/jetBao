@@ -482,7 +482,7 @@ def list_own_ledger(
     query, params = build_ledger_query(
         month=month,
         company_entity=None,
-        employee=None,
+        employee_id=None,
         category=category,
         is_substitute=is_substitute,
         has_duplicate=has_duplicate,
