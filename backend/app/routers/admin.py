@@ -12,6 +12,7 @@ from openpyxl import Workbook
 from app.company_entities import is_allowed_company_entity, normalize_company_entity
 from app.dependencies import require_admin
 from app.expense_month_filter import expense_period_label
+from app.routers.auth import SsoDirectoryError
 from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExpenseBulkApproveResponse, ExpenseRejectRequest, ExpenseResponse, ExpenseReviewDetailResponse, ExportPreview, LedgerRow
 from app.security import hash_password
 from app.services.export_package import build_export_package
@@ -218,14 +219,14 @@ def export_package(
     )
 
 
-def _serialize_user(row) -> AdminUserResponse:
+def _serialize_user(row, *, identity_name: str | None = None) -> AdminUserResponse:
     return AdminUserResponse(
         id=row["id"],
         username=row["username"],
         email=row["email"],
         identity_id=row["identity_id"],
         role=row["role"],
-        employee_name=row["employee_name"],
+        employee_name=row["employee_name"] if identity_name is None else identity_name,
         company_entity=row["company_entity"],
         is_active=bool(row["is_active"]),
         created_at=row["created_at"],
@@ -236,22 +237,61 @@ def _serialize_user(row) -> AdminUserResponse:
 def list_users(request: Request, admin=Depends(require_admin)) -> list[AdminUserResponse]:
     with request.app.state.db.connect() as connection:
         rows = connection.execute("SELECT * FROM users ORDER BY is_active DESC, created_at DESC").fetchall()
-    return [_serialize_user(row) for row in rows]
+    if request.app.state.settings.auth_mode not in {"hybrid", "sso"}:
+        return [_serialize_user(row) for row in rows]
+
+    try:
+        members = request.app.state.sso_client.list_members()
+    except SsoDirectoryError:
+        return [_serialize_user(row, identity_name="") for row in rows]
+
+    names_by_subject = {
+        str(member.get("subject")): str(member.get("display_name") or "").strip()
+        for member in members
+        if member.get("subject")
+    }
+    names_by_email = {
+        str(member.get("email") or "").strip().lower(): str(member.get("display_name") or "").strip()
+        for member in members
+        if member.get("email")
+    }
+    return [
+        _serialize_user(
+            row,
+            identity_name=(
+                names_by_subject.get(str(row["identity_id"]))
+                if row["identity_id"]
+                else names_by_email.get(str(row["email"] or "").lower())
+            )
+            or "",
+        )
+        for row in rows
+    ]
 
 
 @router.post("/users", response_model=AdminUserResponse)
 def create_user(payload: AdminUserCreateRequest, request: Request, admin=Depends(require_admin)) -> AdminUserResponse:
     company_entity = _validate_company_entity(payload.company_entity)
     email = _normalize_enterprise_email(payload.email, request.app.state.settings.sso_email_domain)
-    if request.app.state.settings.auth_mode in {"hybrid", "sso"} and not email:
+    identity_managed = request.app.state.settings.auth_mode in {"hybrid", "sso"}
+    if identity_managed and not email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="启用统一登录后必须填写企业邮箱")
-    if request.app.state.settings.auth_mode != "sso" and not payload.password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="迁移期间创建账号仍需设置初始密码")
+    if request.app.state.settings.auth_mode == "legacy" and not payload.password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="本地账号必须设置初始密码")
+    if identity_managed and payload.password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="统一登录账号不维护 JetBao 密码")
+    if not identity_managed and not (payload.username or "").strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请填写用户名")
+    if not identity_managed and not (payload.employee_name or "").strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请填写员工姓名")
+    username = email if identity_managed else (payload.username or "").strip()
+    employee_name = email if identity_managed else (payload.employee_name or "").strip()
     password = payload.password or secrets.token_urlsafe(32)
     with request.app.state.db.connect() as connection:
-        existing = connection.execute("SELECT id FROM users WHERE username = ?", (payload.username.strip(),)).fetchone()
+        existing = connection.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
         if existing is not None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在")
+            detail = "企业邮箱已绑定其他员工" if identity_managed else "用户名已存在"
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
         try:
             cursor = connection.execute(
                 """
@@ -259,11 +299,11 @@ def create_user(payload: AdminUserCreateRequest, request: Request, admin=Depends
                 VALUES (?, ?, ?, ?, ?, ?, 1)
                 """,
                 (
-                    payload.username.strip(),
+                    username,
                     email,
                     hash_password(password),
                     payload.role,
-                    payload.employee_name.strip(),
+                    employee_name,
                     company_entity,
                 ),
             )
@@ -302,12 +342,16 @@ def update_user(
                 )
             fields.append("email = ?")
             params.append(normalized_email)
+        if payload.password and request.app.state.settings.auth_mode in {"hybrid", "sso"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="统一登录账号不维护 JetBao 密码")
         if payload.password:
             fields.append("password_hash = ?")
             params.append(hash_password(payload.password))
         if payload.role is not None:
             fields.append("role = ?")
             params.append(payload.role)
+        if payload.employee_name is not None and request.app.state.settings.auth_mode in {"hybrid", "sso"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="姓名由 MentiHub 统一维护")
         if payload.employee_name is not None:
             fields.append("employee_name = ?")
             params.append(payload.employee_name.strip())
@@ -368,7 +412,9 @@ def get_expense_for_review(
     with request.app.state.db.connect() as connection:
         expense = connection.execute(
             """
-            SELECT expenses.*, users.employee_name, users.company_entity
+            SELECT expenses.*,
+                   COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                   users.company_entity
             FROM expenses
             JOIN users ON users.id = expenses.user_id
             WHERE expenses.id = ?
@@ -440,7 +486,10 @@ def reject_expense(
 
     with request.app.state.db.connect() as connection:
         expense = connection.execute(
-            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            """SELECT expenses.*,
+                      COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                      users.company_entity
+               FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?""",
             (expense_id,),
         ).fetchone()
         if expense is None:
@@ -449,7 +498,10 @@ def reject_expense(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有已提交记录才能打回")
         _reset_expense_to_pending(connection, expense_id, reject_reason=payload.reason.strip())
         updated = connection.execute(
-            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            """SELECT expenses.*,
+                      COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                      users.company_entity
+               FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?""",
             (expense_id,),
         ).fetchone()
         attachments = _attachment_rows_for_expense(connection, expense_id)
@@ -468,7 +520,10 @@ def approve_expense(
 
     with request.app.state.db.connect() as connection:
         expense = connection.execute(
-            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            """SELECT expenses.*,
+                      COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                      users.company_entity
+               FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?""",
             (expense_id,),
         ).fetchone()
         if expense is None:
@@ -481,7 +536,10 @@ def approve_expense(
             (now, expense_id),
         )
         updated = connection.execute(
-            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            """SELECT expenses.*,
+                      COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                      users.company_entity
+               FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?""",
             (expense_id,),
         ).fetchone()
         attachments = _attachment_rows_for_expense(connection, expense_id)
@@ -499,7 +557,10 @@ def unreview_expense(
 
     with request.app.state.db.connect() as connection:
         expense = connection.execute(
-            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            """SELECT expenses.*,
+                      COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                      users.company_entity
+               FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?""",
             (expense_id,),
         ).fetchone()
         if expense is None:
@@ -511,7 +572,10 @@ def unreview_expense(
             (expense_id,),
         )
         updated = connection.execute(
-            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            """SELECT expenses.*,
+                      COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                      users.company_entity
+               FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?""",
             (expense_id,),
         ).fetchone()
         attachments = _attachment_rows_for_expense(connection, expense_id)

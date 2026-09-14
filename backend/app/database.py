@@ -36,6 +36,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS expenses (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER NOT NULL REFERENCES users(id),
+                    employee_name_snapshot TEXT NOT NULL DEFAULT '',
                     company_entity TEXT NOT NULL,
                     project_name TEXT NOT NULL DEFAULT '',
                     category TEXT NOT NULL,
@@ -129,6 +130,17 @@ class Database:
         self._add_column_if_missing(connection, "attachments", "pool_status", "TEXT NOT NULL DEFAULT 'pooled'")
         self._add_column_if_missing(connection, "expenses", "reject_reason", "TEXT NOT NULL DEFAULT ''")
         self._add_column_if_missing(connection, "expenses", "reviewed_at", "TEXT NOT NULL DEFAULT ''")
+        self._add_column_if_missing(connection, "expenses", "employee_name_snapshot", "TEXT NOT NULL DEFAULT ''")
+        connection.execute(
+            """
+            UPDATE expenses
+            SET employee_name_snapshot = COALESCE(
+                (SELECT users.employee_name FROM users WHERE users.id = expenses.user_id),
+                ''
+            )
+            WHERE employee_name_snapshot = ''
+            """
+        )
         # V2 status migration: draft→pending, submitted→matched
         connection.execute("UPDATE expenses SET status = 'pending' WHERE status = 'draft'")
         connection.execute("UPDATE expenses SET status = 'matched' WHERE status = 'submitted'")

@@ -235,11 +235,11 @@ export interface AdminUser {
 }
 
 export interface AdminUserCreatePayload {
-  username: string;
+  username?: string;
   email?: string;
   password?: string;
   role: Role;
-  employee_name: string;
+  employee_name?: string;
   company_entity: string;
 }
 

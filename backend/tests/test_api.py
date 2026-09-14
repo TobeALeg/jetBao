@@ -60,12 +60,73 @@ def provision_email(client: TestClient, username: str, email: str) -> None:
 
 
 class StubSsoClient:
-    def __init__(self, identity: dict[str, str]):
+    def __init__(self, identity: dict[str, str], members: list[dict] | None = None):
         self.identity = identity
+        self.members = members or []
 
     def exchange_code(self, code: str) -> dict[str, str]:
         assert code == "single-use-code"
         return self.identity
+
+    def list_members(self) -> list[dict]:
+        return self.members
+
+
+def test_sso_client_reads_current_mentihub_identity_contract(monkeypatch):
+    from app.routers.auth import SsoClient
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, str]:
+            return {
+                "sub": "legacy-alias",
+                "subject": "usr-stable-subject",
+                "email": " Person@Mentitrek.com ",
+                "display_name": " 员工姓名 ",
+            }
+
+    class FakeDirectoryResponse(FakeResponse):
+        def json(self) -> dict[str, list[dict[str, str | bool]]]:
+            return {
+                "members": [
+                    {
+                        "subject": "usr-stable-subject",
+                        "email": "person@mentitrek.com",
+                        "display_name": "员工姓名",
+                        "active": True,
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("app.routers.auth.httpx.post", lambda *args, **kwargs: FakeResponse())
+    directory_request = {}
+
+    def fake_get(url, *, auth, timeout):
+        directory_request.update(url=url, auth=auth, timeout=timeout)
+        return FakeDirectoryResponse()
+
+    monkeypatch.setattr("app.routers.auth.httpx.get", fake_get)
+    sso_client = SsoClient(
+        "https://mentti.work/api/sso/token",
+        "jetbao",
+        "secret",
+        "https://jetbao.mentti.work/api/auth/sso/callback",
+    )
+    identity = sso_client.exchange_code("single-use-code")
+
+    assert identity == {
+        "subject": "usr-stable-subject",
+        "email": "person@mentitrek.com",
+        "display_name": "员工姓名",
+    }
+    assert sso_client.list_members()[0]["display_name"] == "员工姓名"
+    assert directory_request == {
+        "url": "https://mentti.work/api/sso/members",
+        "auth": ("jetbao", "secret"),
+        "timeout": 10,
+    }
 
 
 def upload_file(
@@ -227,7 +288,11 @@ def test_sso_login_uses_preprovisioned_email_and_creates_cookie_session(tmp_path
     client = make_client(tmp_path, monkeypatch, auth_mode="sso")
     provision_email(client, "Dandi", "dandi@mentitrek.com")
     client.app.state.sso_client = StubSsoClient(
-        {"sub": "mentti-user-2", "email": "dandi@mentitrek.com"}
+        {
+            "subject": "mentti-user-2",
+            "email": "dandi@mentitrek.com",
+            "display_name": "SSO 姓名",
+        }
     )
 
     start = client.get("/api/auth/sso/start", follow_redirects=False)
@@ -255,6 +320,7 @@ def test_sso_login_uses_preprovisioned_email_and_creates_cookie_session(tmp_path
     me = client.get("/api/me")
     assert me.status_code == 200
     assert me.json()["email"] == "dandi@mentitrek.com"
+    assert me.json()["employee_name"] == "SSO 姓名"
     assert me.json()["role"] == "admin"
     with client.app.state.db.connect() as connection:
         user = connection.execute("SELECT identity_id FROM users WHERE username = 'Dandi'").fetchone()
@@ -266,11 +332,35 @@ def test_sso_login_uses_preprovisioned_email_and_creates_cookie_session(tmp_path
     assert email_change.status_code == 400
     assert "已绑定" in email_change.json()["detail"]
 
+    client.app.state.sso_client = StubSsoClient(
+        {
+            "subject": "mentti-user-2",
+            "email": "dandi.renamed@mentitrek.com",
+            "display_name": "MentiHub 更新姓名",
+        }
+    )
+    restart = client.get("/api/auth/sso/start", follow_redirects=False)
+    next_state = parse_qs(urlparse(restart.headers["location"]).query)["state"][0]
+    synced = client.get(
+        "/api/auth/sso/callback",
+        params={"code": "single-use-code", "state": next_state},
+        follow_redirects=False,
+    )
+
+    assert synced.status_code == 303
+    refreshed_me = client.get("/api/me")
+    assert refreshed_me.json()["email"] == "dandi.renamed@mentitrek.com"
+    assert refreshed_me.json()["employee_name"] == "MentiHub 更新姓名"
+
 
 def test_sso_login_rejects_enterprise_email_without_jetbao_access(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch, auth_mode="sso")
     client.app.state.sso_client = StubSsoClient(
-        {"sub": "mentti-new-user", "email": "new.employee@mentitrek.com"}
+        {
+            "subject": "mentti-new-user",
+            "email": "new.employee@mentitrek.com",
+            "display_name": "新员工",
+        }
     )
     start = client.get("/api/auth/sso/start", follow_redirects=False)
     state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
@@ -289,7 +379,11 @@ def test_sso_login_rejects_enterprise_email_without_jetbao_access(tmp_path, monk
 def test_sso_callback_rejects_invalid_state_before_code_exchange(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch, auth_mode="sso")
     client.app.state.sso_client = StubSsoClient(
-        {"sub": "mentti-user-2", "email": "dandi@mentitrek.com"}
+        {
+            "subject": "mentti-user-2",
+            "email": "dandi@mentitrek.com",
+            "display_name": "SSO 姓名",
+        }
     )
     client.get("/api/auth/sso/start", follow_redirects=False)
 
@@ -477,6 +571,31 @@ def test_expense_endpoint_creates_pending_record(tmp_path, monkeypatch):
     )
     assert response.status_code == 200
     assert response.json()["status"] == "pending"
+
+
+def test_expense_keeps_name_snapshot_after_identity_name_changes(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    dandi = auth_headers(client, "Dandi", "dandi123")
+
+    created = client.post(
+        "/api/expenses",
+        headers=dandi,
+        json={
+            "project_name": "姓名快照验证",
+            "category": "AI 项目",
+            "expense_month": "2026-05",
+            "actual_amount": 100,
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["employee_name"] == "艾丹迪"
+
+    with client.app.state.db.connect() as connection:
+        connection.execute("UPDATE users SET employee_name = 'MentiHub 新姓名' WHERE username = 'Dandi'")
+
+    ledger = client.get("/api/ledger?month=2026-05", headers=dandi)
+    assert ledger.status_code == 200
+    assert ledger.json()[0]["employee_name"] == "艾丹迪"
 
 
 def test_duplicate_upload_is_marked_but_not_blocked(tmp_path, monkeypatch):
@@ -1719,6 +1838,19 @@ def test_admin_can_create_update_and_deactivate_user(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     admin = auth_headers(client, "admin", "admin123")
 
+    missing_username = client.post(
+        "/api/admin/users",
+        headers=admin,
+        json={
+            "password": "temporary-password",
+            "role": "employee",
+            "employee_name": "无用户名员工",
+            "company_entity": "上海山途远智信息科技有限公司",
+        },
+    )
+    assert missing_username.status_code == 400
+    assert "用户名" in missing_username.json()["detail"]
+
     create = client.post(
         "/api/admin/users",
         headers=admin,
@@ -1804,17 +1936,82 @@ def test_sso_admin_can_preprovision_employee_without_local_password(tmp_path, mo
     create = client.post(
         "/api/admin/users",
         json={
-            "username": "new-employee",
             "email": "new.employee@mentitrek.com",
             "role": "employee",
-            "employee_name": "New Employee",
             "company_entity": "上海山途远智信息科技有限公司",
         },
     )
 
     assert create.status_code == 200
+    assert create.json()["username"] == "new.employee@mentitrek.com"
     assert create.json()["email"] == "new.employee@mentitrek.com"
+    assert create.json()["employee_name"] == "new.employee@mentitrek.com"
     assert create.json()["identity_id"] is None
+
+    update_name = client.patch(
+        f"/api/admin/users/{create.json()['id']}",
+        json={"employee_name": "JetBao 自己维护的姓名"},
+    )
+    assert update_name.status_code == 400
+    assert "MentiHub" in update_name.json()["detail"]
+
+    update_password = client.patch(
+        f"/api/admin/users/{create.json()['id']}",
+        json={"password": "local-password"},
+    )
+    assert update_password.status_code == 400
+    assert "不维护 JetBao 密码" in update_password.json()["detail"]
+
+
+def test_hybrid_admin_also_preprovisions_without_local_identity_fields(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch, auth_mode="hybrid")
+    admin = auth_headers(client, "admin", "admin123")
+
+    create = client.post(
+        "/api/admin/users",
+        headers=admin,
+        json={
+            "email": "hybrid.employee@mentitrek.com",
+            "role": "employee",
+            "company_entity": "上海山途远智信息科技有限公司",
+        },
+    )
+
+    assert create.status_code == 200
+    assert create.json()["username"] == "hybrid.employee@mentitrek.com"
+    assert create.json()["employee_name"] == "hybrid.employee@mentitrek.com"
+
+
+def test_sso_employee_list_only_displays_names_from_mentihub(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch, auth_mode="sso")
+    from app.security import create_token
+
+    provision_email(client, "Dandi", "dandi@mentitrek.com")
+    with client.app.state.db.connect() as connection:
+        connection.execute(
+            "UPDATE users SET identity_id = ?, employee_name = ? WHERE username = 'Dandi'",
+            ("usr-dandi", "JetBao 旧姓名"),
+        )
+    client.app.state.sso_client = StubSsoClient(
+        {},
+        members=[
+            {
+                "subject": "usr-dandi",
+                "email": "dandi@mentitrek.com",
+                "display_name": "MentiHub 姓名",
+                "active": True,
+            }
+        ],
+    )
+    client.cookies.set("jetbao_session", create_token(1, "test-secret"))
+
+    response = client.get("/api/admin/users")
+
+    assert response.status_code == 200
+    dandi = next(user for user in response.json() if user["username"] == "Dandi")
+    admin = next(user for user in response.json() if user["username"] == "admin")
+    assert dandi["employee_name"] == "MentiHub 姓名"
+    assert admin["employee_name"] == ""
 
 
 def test_sso_admin_must_preprovision_a_corporate_email(tmp_path, monkeypatch):

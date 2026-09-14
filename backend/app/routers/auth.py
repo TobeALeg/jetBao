@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+import sqlite3
 from typing import Annotated
 from urllib.parse import urlencode
 
@@ -22,6 +23,10 @@ SSO_STATE_MAX_AGE_SECONDS = 60 * 5
 
 
 class SsoExchangeError(Exception):
+    pass
+
+
+class SsoDirectoryError(Exception):
     pass
 
 
@@ -53,13 +58,42 @@ class SsoClient:
             )
             response.raise_for_status()
             payload = response.json()
-            subject = payload.get("sub")
+            subject = payload.get("subject") or payload.get("sub")
             email = payload.get("email")
-            if not isinstance(subject, str) or not subject or not isinstance(email, str) or not email:
+            display_name = payload.get("display_name")
+            if (
+                not isinstance(subject, str)
+                or not subject
+                or not isinstance(email, str)
+                or not email
+                or not isinstance(display_name, str)
+                or not display_name.strip()
+            ):
                 raise SsoExchangeError("身份中心返回了无效身份")
-            return {"sub": subject, "email": email.strip().lower()}
+            return {
+                "subject": subject,
+                "email": email.strip().lower(),
+                "display_name": display_name.strip(),
+            }
         except (httpx.HTTPError, ValueError, SsoExchangeError) as exc:
             raise SsoExchangeError("无法完成统一身份验证") from exc
+
+    def list_members(self) -> list[dict[str, str | bool]]:
+        members_url = f"{self.token_url.rsplit('/', 1)[0]}/members"
+        try:
+            response = httpx.get(
+                members_url,
+                auth=(self.client_id, self.client_secret),
+                timeout=10,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            members = payload.get("members")
+            if not isinstance(members, list):
+                raise SsoDirectoryError("身份中心返回了无效成员目录")
+            return [member for member in members if isinstance(member, dict)]
+        except (httpx.HTTPError, ValueError, SsoDirectoryError) as exc:
+            raise SsoDirectoryError("无法读取 MentiHub 员工姓名") from exc
 
 
 def _set_session_cookie(response: JSONResponse | RedirectResponse, token: str, request: Request) -> None:
@@ -160,24 +194,30 @@ def finish_sso(
         return RedirectResponse("/?sso_error=identity_exchange_failed", status_code=status.HTTP_303_SEE_OTHER)
 
     with request.app.state.db.connect() as connection:
-        user = one(
-            connection,
-            "SELECT * FROM users WHERE lower(email) = ?",
-            (identity["email"].lower(),),
-        )
+        user = one(connection, "SELECT * FROM users WHERE identity_id = ?", (identity["subject"],))
+        if user is None:
+            user = one(
+                connection,
+                "SELECT * FROM users WHERE lower(email) = ?",
+                (identity["email"].lower(),),
+            )
         if user is None or not bool(user["is_active"]):
             response = RedirectResponse("/?sso_error=access_not_provisioned", status_code=status.HTTP_303_SEE_OTHER)
             response.delete_cookie(SSO_STATE_COOKIE, path="/api/auth/sso/callback")
             return response
-        if user["identity_id"] and user["identity_id"] != identity["sub"]:
+        if user["identity_id"] and user["identity_id"] != identity["subject"]:
             response = RedirectResponse("/?sso_error=identity_mismatch", status_code=status.HTTP_303_SEE_OTHER)
             response.delete_cookie(SSO_STATE_COOKIE, path="/api/auth/sso/callback")
             return response
-        if not user["identity_id"]:
+        try:
             connection.execute(
-                "UPDATE users SET identity_id = ? WHERE id = ?",
-                (identity["sub"], user["id"]),
+                "UPDATE users SET identity_id = ?, email = ?, employee_name = ? WHERE id = ?",
+                (identity["subject"], identity["email"], identity["display_name"], user["id"]),
             )
+        except sqlite3.IntegrityError:
+            response = RedirectResponse("/?sso_error=identity_sync_failed", status_code=status.HTTP_303_SEE_OTHER)
+            response.delete_cookie(SSO_STATE_COOKIE, path="/api/auth/sso/callback")
+            return response
 
     response = RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
     _set_session_cookie(response, create_token(user["id"], request.app.state.settings.secret_key), request)

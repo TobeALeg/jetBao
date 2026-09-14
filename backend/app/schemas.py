@@ -230,11 +230,11 @@ class AdminUserResponse(BaseModel):
 
 
 class AdminUserCreateRequest(BaseModel):
-    username: str = Field(min_length=1)
+    username: str | None = None
     email: str | None = None
     password: str | None = Field(default=None, min_length=1)
     role: str = Field(pattern=r"^(employee|admin)$")
-    employee_name: str = Field(min_length=1)
+    employee_name: str | None = None
     company_entity: str = Field(min_length=1)
 
 

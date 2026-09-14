@@ -4,12 +4,13 @@
 
 ### module relationship
 
-- `users`：JetBao 员工档案与业务权限；`email` 预登记企业邮箱，首次统一登录后绑定稳定的 `identity_id`。公司主体和 `admin/employee` 角色只由 JetBao 管理。
+- `users`：JetBao 的本地成员映射与业务权限；`identity_id` 对应 MentiHub 不可变 `subject`，`email` 和 `employee_name` 是登录时更新的身份资料缓存，不允许在 SSO 人员管理中独立修改。启用 SSO 后，新成员以企业邮箱生成隐藏的兼容 `username`、使用不可登录的随机密码占位，人员管理不提供密码创建或重置入口。公司主体和 `admin/employee` 角色只由 JetBao 管理。
 - 人员停用通过更新 `users.is_active` 完成并保留历史；`DELETE /api/admin/users/{user_id}` 只允许删除非当前管理员且没有 `expenses` 或 `attachments` 的空账号，避免破坏报销审计链。
+- 人员管理接口在 SSO 模式通过客户端凭据读取 MentiHub 成员目录，优先按 `subject`、未绑定时按预登记邮箱映射只读姓名；目录不可用或没有匹配时返回空姓名，不回退到 JetBao 旧姓名。前端保留加载时的可编辑业务字段快照，统一保存时只并发提交有变化的账号；删除成功后就地移除该行及快照。
 - `mentti.work`：统一身份认证中心，通过企业邮箱 OTP 验证员工身份；JetBao 使用短效、单次授权码兑换身份，不共享 MentiHub Cookie、JWT 或用户数据库。
 - `company_entities`：系统允许的三个公司主体为 `上海山途远智信息科技有限公司`、`山途远智（上海）企业服务有限公司`、`上海山途远智企业咨询有限公司`；用户创建、用户更新和 bootstrap 管理员都必须使用其中之一。
 - `SEED_DEMO_USERS` 默认关闭；真实部署通过 `BOOTSTRAP_ADMIN_*` 在空用户表时创建第一个管理员，不再按固定用户名自动提权。
-- `expenses`：花费项目统一事实表，包含 `pending`、`matched` 和 `reviewed` 三种状态。
+- `expenses`：花费项目统一事实表，通过 `user_id` 关联稳定身份，并以 `employee_name_snapshot` 保留创建时姓名；包含 `pending`、`matched` 和 `reviewed` 三种状态。
 - `attachments`：上传文件，既可以是花费项目的交易记录，也可以被 OCR 识别为发票凭证；`pool_status = staged` 表示已上传已 OCR 但未入池，`pooled` 表示可进入发票池匹配。
 - `expense_attachments`：花费项目自己的交易记录附件，不表示发票抵扣关系。
 - `expense_invoice_allocations`：发票条目和花费项目之间的归属关系；同一发票条目只能归属一条花费。
@@ -45,7 +46,7 @@
 16. 本地子路径部署：浏览器访问 `/bx/` 时，主机 Nginx 去掉 `/bx/` 前缀后转发静态页面到前端容器；浏览器访问 `/bx/api/*` 时转发到后端容器的 `/api/*`。
 17. 生产域名部署：`jetbao.mentti.work` 由宿主机 Nginx 终止 HTTPS，并转发到只监听 `127.0.0.1:18080` 的前端容器；前端容器把 `/api/*` 转发给 Compose 内部的后端服务。
 18. 自动发布：PR 只验证；`main` 的成功流水线发布不可变镜像。Actions 和服务器分别做容量门禁；服务器串行获取共享锁，有界重试拉取镜像，对 SQLite 做一致性备份，再以候选清单切换；本机和公网健康门禁都通过后才更新 `release.env`，失败则恢复上一个应用版本。成功后在同一锁内清理 JetBao 自身的过期镜像，主机级定时任务按同一保留规则覆盖其他仓库。
-19. 统一登录：JetBao 生成随机 `state` 后跳转 MentiHub；MentiHub 验证企业邮箱并返回一次性授权码；JetBao 后端兑换 `sub/email`，只允许本地已预登记且启用的员工进入，并通过 host-only HttpOnly Cookie 建立 12 小时会话。
+19. 统一登录：JetBao 生成随机 `state` 后跳转 MentiHub；MentiHub 验证企业邮箱并返回一次性授权码；JetBao 后端兑换 `subject/email/display_name`，优先按 `subject` 关联本地成员，首次登录才回退预登记邮箱，并同步身份邮箱和姓名；只有本地已授权且启用的员工能建立 12 小时 host-only HttpOnly Cookie 会话。
 20. 登录迁移：`AUTH_MODE=hybrid` 时保留旧用户名密码入口供管理员补齐企业邮箱；全部员工绑定后切换 `AUTH_MODE=sso`，密码登录和修改密码接口随即关闭。
 21. 返回主站：前端构建参数 `VITE_HOME_URL`（Compose/流水线对应 `FRONTEND_HOME_URL`）控制侧栏“回到 dashboard”地址；使用普通导航且不调用退出接口，因此 JetBao 与 MentiHub 各自的 host-only 会话均保留。
 

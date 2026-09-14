@@ -267,7 +267,8 @@ def _link_expense_attachments(connection: sqlite3.Connection, expense_id: int, a
 def _load_expense(connection: sqlite3.Connection, expense_id: int):
     expense = connection.execute(
         """
-        SELECT expenses.*, users.employee_name
+        SELECT expenses.*,
+               COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name
         FROM expenses
         JOIN users ON users.id = expenses.user_id
         WHERE expenses.id = ?
@@ -449,7 +450,8 @@ def list_expenses(request: Request, user=Depends(get_current_user)) -> list[Expe
     with request.app.state.db.connect() as connection:
         rows = connection.execute(
             """
-            SELECT expenses.*, users.employee_name
+            SELECT expenses.*,
+                   COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name
             FROM expenses
             JOIN users ON users.id = expenses.user_id
             WHERE expenses.user_id = ?
@@ -595,7 +597,11 @@ def withdraw_expense(
 ) -> ExpenseResponse:
     with request.app.state.db.connect() as connection:
         expense = connection.execute(
-            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ? AND expenses.user_id = ?",
+            """SELECT expenses.*,
+                      COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                      users.company_entity
+               FROM expenses JOIN users ON users.id = expenses.user_id
+               WHERE expenses.id = ? AND expenses.user_id = ?""",
             (expense_id, user["id"]),
         ).fetchone()
         if expense is None:
@@ -604,7 +610,11 @@ def withdraw_expense(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有已提交记录才能撤回")
         _reset_expense_to_pending(connection, expense_id)
         updated = connection.execute(
-            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            """SELECT expenses.*,
+                      COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                      users.company_entity
+               FROM expenses JOIN users ON users.id = expenses.user_id
+               WHERE expenses.id = ?""",
             (expense_id,),
         ).fetchone()
         attachments = _attachment_rows_for_expense(connection, expense_id)
@@ -848,14 +858,15 @@ def create_expense(
         cursor = connection.execute(
             """
             INSERT INTO expenses (
-                user_id, company_entity, project_name, category, expense_month,
+                user_id, employee_name_snapshot, company_entity, project_name, category, expense_month,
                 actual_amount, invoice_amount, is_substitute, substitute_reason,
                 note, has_duplicate, status
             )
-            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 'pending')
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 'pending')
             """,
             (
                 user["id"],
+                user["employee_name"],
                 user["company_entity"],
                 payload.project_name.strip(),
                 payload.category.strip() or "差旅交通",
@@ -939,14 +950,15 @@ def create_and_submit_expense(
         cursor = connection.execute(
             """
             INSERT INTO expenses (
-                user_id, company_entity, project_name, category, expense_month,
+                user_id, employee_name_snapshot, company_entity, project_name, category, expense_month,
                 actual_amount, invoice_amount, is_substitute, substitute_reason,
                 note, has_duplicate, status
             )
-            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 'pending')
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 'pending')
             """,
             (
                 user["id"],
+                user["employee_name"],
                 user["company_entity"],
                 payload.project_name.strip(),
                 payload.category.strip() or "差旅交通",
@@ -1098,15 +1110,16 @@ def create_expenses_batch(
             cursor = connection.execute(
                 """
                 INSERT INTO expenses (
-                    user_id, company_entity, project_name, category, expense_month, actual_amount,
+                    user_id, employee_name_snapshot, company_entity, project_name, category, expense_month, actual_amount,
                     invoice_amount, invoice_buyer, invoice_number, invoice_date, invoice_type,
                     source_attachment_id, source_invoice_index, is_substitute, substitute_reason,
                     note, has_duplicate, status
                 )
-                VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'matched')
+                VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'matched')
                 """,
                 (
                     user["id"],
+                    user["employee_name"],
                     user["company_entity"],
                     item_payload.category.strip(),
                     item_payload.expense_month,
