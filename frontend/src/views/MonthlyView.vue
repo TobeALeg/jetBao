@@ -667,8 +667,10 @@ async function deleteRecord(record: Expense) {
   error.value = "";
   try {
     await deleteExpense(record.id);
+    expenses.value = expenses.value.filter((expense) => expense.id !== record.id);
+    if (targetExpenseId.value === record.id) resetComposer();
     success.value = "待补材料报销已删除";
-    await load();
+    emit("refreshed");
   } catch (err) {
     error.value = err instanceof Error ? err.message : "删除失败";
   } finally {
