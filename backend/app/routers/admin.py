@@ -329,16 +329,28 @@ def update_user(
 
 
 @router.delete("/users/{user_id}", response_model=AdminUserResponse)
-def deactivate_user(user_id: int, request: Request, admin=Depends(require_admin)) -> AdminUserResponse:
+def delete_user(user_id: int, request: Request, admin=Depends(require_admin)) -> AdminUserResponse:
     if user_id == admin["id"]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能停用当前登录账号")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能删除当前登录账号")
     with request.app.state.db.connect() as connection:
         row = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-        connection.execute("UPDATE users SET is_active = 0 WHERE id = ?", (user_id,))
-        updated = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    return _serialize_user(updated)
+        has_business_data = connection.execute(
+            """
+            SELECT EXISTS(SELECT 1 FROM expenses WHERE user_id = ?)
+                OR EXISTS(SELECT 1 FROM attachments WHERE user_id = ?)
+            """,
+            (user_id, user_id),
+        ).fetchone()[0]
+        if has_business_data:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="该账号已有报销或附件记录，不能删除；请改用停用",
+            )
+        deleted = _serialize_user(row)
+        connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    return deleted
 
 
 @router.get("/expenses/{expense_id}", response_model=ExpenseReviewDetailResponse)

@@ -397,7 +397,7 @@ export async function updateUser(id: number, payload: AdminUserUpdatePayload): P
   });
 }
 
-export async function deactivateUser(id: number): Promise<AdminUser> {
+export async function deleteUser(id: number): Promise<AdminUser> {
   return request(`/admin/users/${id}`, {
     method: "DELETE"
   });

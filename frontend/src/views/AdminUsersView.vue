@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
-import { Save, UserPlus } from "lucide-vue-next";
-import { createUser, deactivateUser, getAuthConfig, listUsers, updateUser } from "../services/api";
+import { Save, Trash2, UserPlus } from "lucide-vue-next";
+import { createUser, deleteUser, getAuthConfig, listUsers, updateUser } from "../services/api";
 import type { AuthConfig } from "../services/api";
 import { COMPANY_ENTITIES } from "../constants/companyEntities";
 import type { AdminUser, AdminUserCreatePayload, Role } from "../types";
@@ -90,11 +90,27 @@ async function deactivate(user: AdminUser) {
   error.value = "";
   success.value = "";
   try {
-    await deactivateUser(user.id);
+    await updateUser(user.id, { is_active: false });
     success.value = "账号已停用";
     await load();
   } catch (err) {
     error.value = err instanceof Error ? err.message : "停用失败";
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function remove(user: AdminUser) {
+  if (!window.confirm(`确认永久删除账号「${user.employee_name}」？此操作不可恢复。已有报销或附件记录的账号不能删除。`)) return;
+  saving.value = true;
+  error.value = "";
+  success.value = "";
+  try {
+    await deleteUser(user.id);
+    success.value = "账号已删除";
+    await load();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "删除失败";
   } finally {
     saving.value = false;
   }
@@ -221,6 +237,10 @@ onMounted(load);
                   </button>
                   <button class="secondary-button h-9 px-3 text-rose-700" type="button" :disabled="saving || !user.is_active" @click="deactivate(user)">
                     停用
+                  </button>
+                  <button class="secondary-button h-9 px-3 text-rose-700" type="button" :disabled="saving" @click="remove(user)">
+                    <Trash2 class="h-4 w-4" />
+                    删除
                   </button>
                 </div>
               </td>

@@ -5,6 +5,7 @@
 ### module relationship
 
 - `users`：JetBao 员工档案与业务权限；`email` 预登记企业邮箱，首次统一登录后绑定稳定的 `identity_id`。公司主体和 `admin/employee` 角色只由 JetBao 管理。
+- 人员停用通过更新 `users.is_active` 完成并保留历史；`DELETE /api/admin/users/{user_id}` 只允许删除非当前管理员且没有 `expenses` 或 `attachments` 的空账号，避免破坏报销审计链。
 - `mentti.work`：统一身份认证中心，通过企业邮箱 OTP 验证员工身份；JetBao 使用短效、单次授权码兑换身份，不共享 MentiHub Cookie、JWT 或用户数据库。
 - `company_entities`：系统允许的三个公司主体为 `上海山途远智信息科技有限公司`、`山途远智（上海）企业服务有限公司`、`上海山途远智企业咨询有限公司`；用户创建、用户更新和 bootstrap 管理员都必须使用其中之一。
 - `SEED_DEMO_USERS` 默认关闭；真实部署通过 `BOOTSTRAP_ADMIN_*` 在空用户表时创建第一个管理员，不再按固定用户名自动提权。

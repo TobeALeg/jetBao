@@ -242,7 +242,7 @@ function scrollTo(id: string) {
             <h2>人员管理</h2>
           </div>
           <div class="guide-card space-y-4">
-            <p>在「人员管理」页可创建账号、修改角色与公司主体、重置密码或停用账号。</p>
+            <p>在「人员管理」页可创建账号、修改角色与公司主体、重置密码、停用账号，或删除从未产生报销数据的账号。</p>
             <div class="overflow-hidden rounded-lg border border-slate-200">
               <table class="min-w-full text-left text-sm">
                 <thead class="bg-slate-50 text-xs text-slate-500">

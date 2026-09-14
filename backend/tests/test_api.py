@@ -1751,11 +1751,49 @@ def test_admin_can_create_update_and_deactivate_user(tmp_path, monkeypatch):
     carol = auth_headers(client, "carol", "newpass123")
     assert client.get("/api/me", headers=carol).status_code == 200
 
-    deactivate = client.delete(f"/api/admin/users/{user_id}", headers=admin)
+    deactivate = client.patch(f"/api/admin/users/{user_id}", headers=admin, json={"is_active": False})
     assert deactivate.status_code == 200
     assert deactivate.json()["is_active"] is False
     disabled_login = client.post("/api/auth/login", json={"username": "carol", "password": "newpass123"})
     assert disabled_login.status_code == 403
+
+
+def test_admin_can_delete_only_users_without_business_data(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    admin = auth_headers(client, "admin", "admin123")
+
+    def create_user(username: str) -> int:
+        response = client.post(
+            "/api/admin/users",
+            headers=admin,
+            json={
+                "username": username,
+                "email": f"{username}@mentitrek.com",
+                "password": "temporary-password",
+                "role": "employee",
+                "employee_name": username.title(),
+                "company_entity": "上海山途远智信息科技有限公司",
+            },
+        )
+        assert response.status_code == 200
+        return response.json()["id"]
+
+    unused_user_id = create_user("unused")
+    delete = client.delete(f"/api/admin/users/{unused_user_id}", headers=admin)
+    assert delete.status_code == 200
+    assert delete.json()["id"] == unused_user_id
+    remaining_users = client.get("/api/admin/users", headers=admin).json()
+    assert all(user["id"] != unused_user_id for user in remaining_users)
+
+    active_user_id = create_user("withdata")
+    insert_ocr_attachment(client, active_user_id, invoice_items=[], filename="withdata.pdf")
+    blocked = client.delete(f"/api/admin/users/{active_user_id}", headers=admin)
+    assert blocked.status_code == 409
+    assert "请改用停用" in blocked.json()["detail"]
+
+    self_delete = client.delete("/api/admin/users/1", headers=admin)
+    assert self_delete.status_code == 400
+    assert "当前登录账号" in self_delete.json()["detail"]
 
 
 def test_sso_admin_can_preprovision_employee_without_local_password(tmp_path, monkeypatch):
