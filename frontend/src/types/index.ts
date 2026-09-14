@@ -111,6 +111,14 @@ export interface ExpenseCreatePayload {
   substitute_reason?: string;
 }
 
+export interface PendingExpenseUpdatePayload {
+  project_name: string;
+  actual_amount: number;
+  category: string;
+  is_substitute: boolean;
+  substitute_reason: string;
+}
+
 export interface ExpenseItemCreatePayload {
   attachment_id: number;
   invoice_item_index: number;
@@ -227,11 +235,11 @@ export interface AdminUser {
 }
 
 export interface AdminUserCreatePayload {
-  username: string;
+  username?: string;
   email?: string;
   password?: string;
   role: Role;
-  employee_name: string;
+  employee_name?: string;
   company_entity: string;
 }
 

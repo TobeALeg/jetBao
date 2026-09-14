@@ -4,11 +4,13 @@
 
 ### module relationship
 
-- `users`：JetBao 员工档案与业务权限；`email` 预登记企业邮箱，首次统一登录后绑定稳定的 `identity_id`。公司主体和 `admin/employee` 角色只由 JetBao 管理。
+- `users`：JetBao 的本地成员映射与业务权限；`identity_id` 对应 MentiHub 不可变 `subject`，`email` 和 `employee_name` 是登录时更新的身份资料缓存，不允许在 SSO 人员管理中独立修改。启用 SSO 后，新成员以企业邮箱生成隐藏的兼容 `username`、使用不可登录的随机密码占位，人员管理不提供密码创建或重置入口。公司主体和 `admin/employee` 角色只由 JetBao 管理。
+- 人员停用通过更新 `users.is_active` 完成并保留历史；`DELETE /api/admin/users/{user_id}` 只允许删除非当前管理员且没有 `expenses` 或 `attachments` 的空账号，避免破坏报销审计链。
+- 人员管理接口在 SSO 模式通过客户端凭据读取 MentiHub 成员目录，优先按 `subject`、未绑定时按预登记邮箱映射只读姓名；目录不可用或没有匹配时返回空姓名，不回退到 JetBao 旧姓名。前端保留加载时的可编辑业务字段快照，统一保存时只并发提交有变化的账号；删除成功后就地移除该行及快照。
 - `mentti.work`：统一身份认证中心，通过企业邮箱 OTP 验证员工身份；JetBao 使用短效、单次授权码兑换身份，不共享 MentiHub Cookie、JWT 或用户数据库。
 - `company_entities`：系统允许的三个公司主体为 `上海山途远智信息科技有限公司`、`山途远智（上海）企业服务有限公司`、`上海山途远智企业咨询有限公司`；用户创建、用户更新和 bootstrap 管理员都必须使用其中之一。
 - `SEED_DEMO_USERS` 默认关闭；真实部署通过 `BOOTSTRAP_ADMIN_*` 在空用户表时创建第一个管理员，不再按固定用户名自动提权。
-- `expenses`：花费项目统一事实表，包含 `pending`、`matched` 和 `reviewed` 三种状态。
+- `expenses`：花费项目统一事实表，通过 `user_id` 关联稳定身份，并以 `employee_name_snapshot` 保留创建时姓名；包含 `pending`、`matched` 和 `reviewed` 三种状态。
 - `attachments`：上传文件，既可以是花费项目的交易记录，也可以被 OCR 识别为发票凭证；`pool_status = staged` 表示已上传已 OCR 但未入池，`pooled` 表示可进入发票池匹配。
 - `expense_attachments`：花费项目自己的交易记录附件，不表示发票抵扣关系。
 - `expense_invoice_allocations`：发票条目和花费项目之间的归属关系；同一发票条目只能归属一条花费。
@@ -25,7 +27,7 @@
 
 ### data flow
 
-1. 待处理报销：前端提交项目名称、金额、月份、类别，后端写入 `expenses.status = pending`。
+1. 待处理报销：前端提交项目名称、金额、月份、类别，后端写入 `expenses.status = pending`；员工可通过 `PATCH /api/expenses/{expense_id}` 完整更新自己的 `pending` 记录，后端拒绝跨用户或非 `pending` 修改。
 2. 交易记录附件：用户在我的报销页或报销整理工作栏上传付款截图、订单截图等图片，前端先调用 `/api/attachments/batch`，再通过 `/api/expenses/{expense_id}/attachments` 写入 `expense_attachments`。
    员工新建报销工作区使用该接口上传多张佐证，并通过 `/api/attachments/invoices/batch` 上传和 OCR 多份发票文件；发票 OCR 结果按 `attachment_id + invoice_item_index` 展开为独立发票条目，再通过 `/api/expense-allocations/batch` 一次绑定到同一待处理花费。
 3. 发票暂存：用户上传发票附件时，后端立即保存文件并 OCR，写入 `attachments.pool_status = staged`。
@@ -36,7 +38,7 @@
 8. 员工提交：票面合计覆盖报销金额后，员工主动提交，状态从 `pending` 变为 `matched`。
 9. 管理审核：管理员可逐笔通过，或一键通过当前台账筛选范围内全部 `matched` 记录；审核在单事务中完成且可安全重试，`pending`/`reviewed` 不会被批量改写。通过后状态从 `matched` 变为 `reviewed`；员工撤回或管理员打回会回到 `pending` 并保留已匹配材料。
 10. 删除：员工可以删除 `pending` 花费记录、未匹配发票附件和花费记录里的交易附件；删除部分匹配花费会级联移除 `expense_invoice_allocations`，让已入池发票回到发票池。
-11. 报销台账：普通员工通过 `/api/ledger` 按年份、月份、类别、状态查询自己的 `expenses`；管理员通过 `/api/admin/ledger` 按月份、公司、员工、类别、状态查询全员记录。两者共用台账查询服务，同时查看交易记录附件和发票匹配摘要。
+11. 报销台账：普通员工通过 `/api/ledger` 按年份、月份、类别、状态查询自己的 `expenses`；管理员先通过 `/api/admin/users` 获取当前启用员工的姓名下拉选项，再通过 `/api/admin/ledger` 按月份、公司、员工、类别、状态查询全员记录。两者共用台账查询服务，同时查看交易记录附件和发票匹配摘要。
 12. 导出预览：后端统计 `matched` 和 `reviewed` 记录，同时返回筛选条件下的 `pending` 数量。
 13. 单 Excel 导出：`/api/admin/export.xlsx` 保留轻量台账文件。
 14. 明细包导出：`/api/admin/export-package.zip` 生成 `{期间}报销明细.xlsx`，附件按 `{公司}{期间}报销/{员工}{期间}报销/{报销类别}/{发票或佐证文件}` 归档；例如 `山途远智全部报销/夏莺萁全部报销/办公采购/快递发票20元.pdf`。外层压缩包按上海时区的当前月份命名为 `山途远智{当前月}月报销明细.zip`。交易记录附件来自 `expense_attachments`，发票文件来自 `expense_invoice_allocations`。
@@ -44,7 +46,7 @@
 16. 本地子路径部署：浏览器访问 `/bx/` 时，主机 Nginx 去掉 `/bx/` 前缀后转发静态页面到前端容器；浏览器访问 `/bx/api/*` 时转发到后端容器的 `/api/*`。
 17. 生产域名部署：`jetbao.mentti.work` 由宿主机 Nginx 终止 HTTPS，并转发到只监听 `127.0.0.1:18080` 的前端容器；前端容器把 `/api/*` 转发给 Compose 内部的后端服务。
 18. 自动发布：PR 只验证；`main` 的成功流水线发布不可变镜像。Actions 和服务器分别做容量门禁；服务器串行获取共享锁，有界重试拉取镜像，对 SQLite 做一致性备份，再以候选清单切换；本机和公网健康门禁都通过后才更新 `release.env`，失败则恢复上一个应用版本。成功后在同一锁内清理 JetBao 自身的过期镜像，主机级定时任务按同一保留规则覆盖其他仓库。
-19. 统一登录：JetBao 生成随机 `state` 后跳转 MentiHub；MentiHub 验证企业邮箱并返回一次性授权码；JetBao 后端兑换 `sub/email`，只允许本地已预登记且启用的员工进入，并通过 host-only HttpOnly Cookie 建立 12 小时会话。
+19. 统一登录：JetBao 生成随机 `state` 后跳转 MentiHub；MentiHub 验证企业邮箱并返回一次性授权码；JetBao 后端兑换 `subject/email/display_name`，优先按 `subject` 关联本地成员，首次登录才回退预登记邮箱，并同步身份邮箱和姓名；只有本地已授权且启用的员工能建立 12 小时 host-only HttpOnly Cookie 会话。
 20. 登录迁移：`AUTH_MODE=hybrid` 时保留旧用户名密码入口供管理员补齐企业邮箱；全部员工绑定后切换 `AUTH_MODE=sso`，密码登录和修改密码接口随即关闭。
 21. 返回主站：前端构建参数 `VITE_HOME_URL`（Compose/流水线对应 `FRONTEND_HOME_URL`）控制侧栏“回到 dashboard”地址；使用普通导航且不调用退出接口，因此 JetBao 与 MentiHub 各自的 host-only 会话均保留。
 

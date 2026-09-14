@@ -16,6 +16,7 @@ import type {
   ExportPreview,
   InvoicePoolItem,
   LedgerRow,
+  PendingExpenseUpdatePayload,
   PasswordChangePayload,
   User
 } from "../types";
@@ -144,6 +145,13 @@ export async function linkExpenseAttachments(id: number, payload: ExpenseAttachm
 export async function deleteExpense(id: number): Promise<{ deleted: boolean }> {
   return request(`/expenses/${id}`, {
     method: "DELETE"
+  });
+}
+
+export async function updatePendingExpense(id: number, payload: PendingExpenseUpdatePayload): Promise<Expense> {
+  return request(`/expenses/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
   });
 }
 
@@ -389,7 +397,7 @@ export async function updateUser(id: number, payload: AdminUserUpdatePayload): P
   });
 }
 
-export async function deactivateUser(id: number): Promise<AdminUser> {
+export async function deleteUser(id: number): Promise<AdminUser> {
   return request(`/admin/users/${id}`, {
     method: "DELETE"
   });

@@ -22,6 +22,7 @@ from app.schemas import (
     InvoicePoolItem,
     LedgerRow,
     PendingExpenseSubmitRequest,
+    PendingExpenseUpdateRequest,
 )
 from app.services.ledger import build_ledger_query, serialize_ledger_row
 from app.services.duplicate_attachments import find_duplicate_sources
@@ -266,7 +267,8 @@ def _link_expense_attachments(connection: sqlite3.Connection, expense_id: int, a
 def _load_expense(connection: sqlite3.Connection, expense_id: int):
     expense = connection.execute(
         """
-        SELECT expenses.*, users.employee_name
+        SELECT expenses.*,
+               COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name
         FROM expenses
         JOIN users ON users.id = expenses.user_id
         WHERE expenses.id = ?
@@ -448,7 +450,8 @@ def list_expenses(request: Request, user=Depends(get_current_user)) -> list[Expe
     with request.app.state.db.connect() as connection:
         rows = connection.execute(
             """
-            SELECT expenses.*, users.employee_name
+            SELECT expenses.*,
+                   COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name
             FROM expenses
             JOIN users ON users.id = expenses.user_id
             WHERE expenses.user_id = ?
@@ -594,7 +597,11 @@ def withdraw_expense(
 ) -> ExpenseResponse:
     with request.app.state.db.connect() as connection:
         expense = connection.execute(
-            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ? AND expenses.user_id = ?",
+            """SELECT expenses.*,
+                      COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                      users.company_entity
+               FROM expenses JOIN users ON users.id = expenses.user_id
+               WHERE expenses.id = ? AND expenses.user_id = ?""",
             (expense_id, user["id"]),
         ).fetchone()
         if expense is None:
@@ -603,7 +610,11 @@ def withdraw_expense(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有已提交记录才能撤回")
         _reset_expense_to_pending(connection, expense_id)
         updated = connection.execute(
-            "SELECT expenses.*, users.employee_name, users.company_entity FROM expenses JOIN users ON users.id = expenses.user_id WHERE expenses.id = ?",
+            """SELECT expenses.*,
+                      COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
+                      users.company_entity
+               FROM expenses JOIN users ON users.id = expenses.user_id
+               WHERE expenses.id = ?""",
             (expense_id,),
         ).fetchone()
         attachments = _attachment_rows_for_expense(connection, expense_id)
@@ -847,14 +858,15 @@ def create_expense(
         cursor = connection.execute(
             """
             INSERT INTO expenses (
-                user_id, company_entity, project_name, category, expense_month,
+                user_id, employee_name_snapshot, company_entity, project_name, category, expense_month,
                 actual_amount, invoice_amount, is_substitute, substitute_reason,
                 note, has_duplicate, status
             )
-            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 'pending')
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 'pending')
             """,
             (
                 user["id"],
+                user["employee_name"],
                 user["company_entity"],
                 payload.project_name.strip(),
                 payload.category.strip() or "差旅交通",
@@ -879,6 +891,54 @@ def create_expense_draft(
     return create_expense(payload, request, user)
 
 
+@router.patch("/expenses/{expense_id}", response_model=ExpenseResponse)
+def update_pending_expense(
+    expense_id: int,
+    payload: PendingExpenseUpdateRequest,
+    request: Request,
+    user=Depends(get_current_user),
+) -> ExpenseResponse:
+    """完整修改当前员工的一笔待处理花费。"""
+    project_name = payload.project_name.strip()
+    category = payload.category.strip()
+    if not project_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请填写报销事项")
+    if not category:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请选择报销类别")
+
+    with request.app.state.db.connect() as connection:
+        expense = connection.execute(
+            "SELECT * FROM expenses WHERE id = ? AND user_id = ?",
+            (expense_id, user["id"]),
+        ).fetchone()
+        if expense is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+        _ensure_expense_is_pending(expense)
+
+        connection.execute(
+            """
+            UPDATE expenses
+            SET project_name = ?, actual_amount = ?, category = ?,
+                is_substitute = ?, substitute_reason = ?
+            WHERE id = ?
+            """,
+            (
+                project_name,
+                payload.actual_amount,
+                category,
+                int(payload.is_substitute),
+                payload.substitute_reason.strip(),
+                expense_id,
+            ),
+        )
+        if _allocated_amount_for_expense(connection, expense_id) > 0:
+            _sync_expense_after_allocation(connection, expense_id)
+            if payload.is_substitute:
+                connection.execute("UPDATE expenses SET is_substitute = 1 WHERE id = ?", (expense_id,))
+        updated, linked_attachments, allocations = _load_expense(connection, expense_id)
+    return serialize_expense(updated, linked_attachments, allocations, connection)
+
+
 @router.post("/expenses/submit", response_model=ExpenseResponse)
 def create_and_submit_expense(
     payload: ExpenseSubmitRequest,
@@ -890,14 +950,15 @@ def create_and_submit_expense(
         cursor = connection.execute(
             """
             INSERT INTO expenses (
-                user_id, company_entity, project_name, category, expense_month,
+                user_id, employee_name_snapshot, company_entity, project_name, category, expense_month,
                 actual_amount, invoice_amount, is_substitute, substitute_reason,
                 note, has_duplicate, status
             )
-            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 'pending')
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 'pending')
             """,
             (
                 user["id"],
+                user["employee_name"],
                 user["company_entity"],
                 payload.project_name.strip(),
                 payload.category.strip() or "差旅交通",
@@ -1049,15 +1110,16 @@ def create_expenses_batch(
             cursor = connection.execute(
                 """
                 INSERT INTO expenses (
-                    user_id, company_entity, project_name, category, expense_month, actual_amount,
+                    user_id, employee_name_snapshot, company_entity, project_name, category, expense_month, actual_amount,
                     invoice_amount, invoice_buyer, invoice_number, invoice_date, invoice_type,
                     source_attachment_id, source_invoice_index, is_substitute, substitute_reason,
                     note, has_duplicate, status
                 )
-                VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'matched')
+                VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'matched')
                 """,
                 (
                     user["id"],
+                    user["employee_name"],
                     user["company_entity"],
                     item_payload.category.strip(),
                     item_payload.expense_month,

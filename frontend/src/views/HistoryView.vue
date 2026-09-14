@@ -8,6 +8,7 @@ import {
   downloadExportPackage,
   listLedger,
   listOwnLedger,
+  listUsers,
   rejectExpense,
   unreviewExpense,
 } from "../services/api";
@@ -32,6 +33,7 @@ const filters = ref<Record<string, string>>({
 });
 
 const rows = ref<LedgerRow[]>([]);
+const employeeNames = ref<string[]>([]);
 const loading = ref(false);
 const error = ref("");
 const success = ref("");
@@ -141,6 +143,18 @@ async function search() {
     error.value = err instanceof Error ? err.message : "加载失败";
   } finally {
     if (searchId === latestSearchId.value) loading.value = false;
+  }
+}
+
+async function loadEmployeeNames() {
+  if (!isAdmin.value) return;
+  try {
+    const users = await listUsers();
+    employeeNames.value = Array.from(
+      new Set(users.filter((user) => user.is_active).map((user) => user.employee_name.trim()).filter(Boolean))
+    ).sort((left, right) => left.localeCompare(right, "zh-CN"));
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "加载员工列表失败";
   }
 }
 
@@ -280,7 +294,10 @@ async function handleExport() {
   }
 }
 
-onMounted(search);
+onMounted(async () => {
+  await search();
+  await loadEmployeeNames();
+});
 watch(() => props.refreshKey, search);
 watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => filters.value.employee, () => filters.value.status], search);
 </script>
@@ -341,7 +358,12 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
         </div>
         <div v-if="isAdmin">
           <label class="field-label">员工</label>
-          <input v-model="filters.employee" class="field-input mt-1 w-full" placeholder="姓名" />
+          <select v-model="filters.employee" class="field-input mt-1 w-full">
+            <option value="">全部</option>
+            <option v-for="employeeName in employeeNames" :key="employeeName" :value="employeeName">
+              {{ employeeName }}
+            </option>
+          </select>
         </div>
         <div>
           <label class="field-label">状态</label>

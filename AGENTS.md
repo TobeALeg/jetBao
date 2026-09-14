@@ -5,6 +5,7 @@
 - Do not use Playwright CLI, browser automation, or screenshot-based visual QA by default.
 - Prefer code review, type checks, builds, API checks, and lightweight DOM/content checks for routine verification.
 - Use Playwright CLI or screenshots only when the user explicitly asks for visual verification, or after asking first and getting confirmation.
+- After completing and verifying each feature, report the changes and verification results to the user and wait for explicit confirmation. Once confirmed, automatically commit any uncommitted work for that feature, push its feature branch, and create a ready-for-review pull request without asking again. Do not create the pull request before confirmation.
 
 ## Agent skills
 

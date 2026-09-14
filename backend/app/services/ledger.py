@@ -54,7 +54,7 @@ def build_ledger_query(
         SELECT
             expenses.id,
             expenses.company_entity,
-            users.employee_name,
+            COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
             expenses.project_name,
             expenses.category,
             expenses.expense_month,

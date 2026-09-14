@@ -278,13 +278,13 @@ def _fetch_exportable_expenses(
         f"""
         SELECT
             expenses.*,
-            users.employee_name,
+            COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) AS employee_name,
             users.company_entity AS user_company_entity
         FROM expenses
         JOIN users ON users.id = expenses.user_id
         WHERE {" AND ".join(where)}
         ORDER BY
-            users.employee_name COLLATE NOCASE,
+            COALESCE(NULLIF(expenses.employee_name_snapshot, ''), users.employee_name) COLLATE NOCASE,
             expenses.category COLLATE NOCASE,
             expenses.created_at,
             expenses.id

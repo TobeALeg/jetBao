@@ -195,6 +195,7 @@ function scrollTo(id: string) {
             <p v-else>进入「报销记录」可查看<strong>仅属于你自己</strong>的过往报销，按年份、月份和状态筛选。记录按月份分组展开，可查看每笔金额与发票摘要。</p>
             <ul class="guide-list">
               <li>筛选后点击「查询」刷新列表；切换筛选条件会自动查询。</li>
+              <li v-if="isAdmin">点击员工筛选框可从当前启用的员工姓名中直接选择。</li>
               <li>「已提交」状态的记录等待管理员审核。</li>
               <li>「已完成」为审核通过记录，表格中以灰色显示。</li>
               <li v-if="!isAdmin">其他员工的记录不会出现在你的列表中。</li>
@@ -241,7 +242,7 @@ function scrollTo(id: string) {
             <h2>人员管理</h2>
           </div>
           <div class="guide-card space-y-4">
-            <p>在「人员管理」页可创建账号、修改角色与公司主体、重置密码或停用账号。</p>
+            <p>在「人员管理」页可创建账号、修改角色与公司主体、重置密码、停用账号，或删除从未产生报销数据的账号。</p>
             <div class="overflow-hidden rounded-lg border border-slate-200">
               <table class="min-w-full text-left text-sm">
                 <thead class="bg-slate-50 text-xs text-slate-500">
