@@ -28,12 +28,12 @@ const filterYear = ref("");
 const filterMonthPart = ref("");
 const filters = ref<Record<string, string>>({
   company_entity: "",
-  employee: "",
+  employee_id: "",
   status: "",
 });
 
 const rows = ref<LedgerRow[]>([]);
-const employeeNames = ref<string[]>([]);
+const employeeOptions = ref<Array<{ id: number; name: string }>>([]);
 const loading = ref(false);
 const error = ref("");
 const success = ref("");
@@ -150,9 +150,13 @@ async function loadEmployeeNames() {
   if (!isAdmin.value) return;
   try {
     const users = await listUsers();
-    employeeNames.value = Array.from(
-      new Set(users.filter((user) => user.is_active).map((user) => user.employee_name.trim()).filter(Boolean))
-    ).sort((left, right) => left.localeCompare(right, "zh-CN"));
+    employeeOptions.value = users
+      .filter((user) => user.is_active)
+      .map((user) => ({
+        id: user.id,
+        name: user.employee_name.trim() || user.email || user.username,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
   } catch (err) {
     error.value = err instanceof Error ? err.message : "加载员工列表失败";
   }
@@ -308,7 +312,7 @@ onMounted(async () => {
   await loadEmployeeNames();
 });
 watch(() => props.refreshKey, search);
-watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => filters.value.employee, () => filters.value.status], search);
+watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => filters.value.employee_id, () => filters.value.status], search);
 </script>
 
 <template>
@@ -368,10 +372,10 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
         </div>
         <div v-if="isAdmin">
           <label class="field-label">员工</label>
-          <select v-model="filters.employee" class="field-input mt-1 w-full">
+          <select v-model="filters.employee_id" class="field-input mt-1 w-full">
             <option value="">全部</option>
-            <option v-for="employeeName in employeeNames" :key="employeeName" :value="employeeName">
-              {{ employeeName }}
+            <option v-for="option in employeeOptions" :key="option.id" :value="String(option.id)">
+              {{ option.name }}
             </option>
           </select>
         </div>

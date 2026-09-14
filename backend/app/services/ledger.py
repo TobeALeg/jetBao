@@ -9,7 +9,7 @@ def build_ledger_query(
     *,
     month: str | None,
     company_entity: str | None,
-    employee: str | None,
+    employee_id: int | None,
     category: str | None,
     is_substitute: bool | None,
     has_duplicate: bool | None,
@@ -33,9 +33,9 @@ def build_ledger_query(
     if company_entity:
         where.append("expenses.company_entity = ?")
         params.append(company_entity)
-    if employee:
-        where.append("users.employee_name LIKE ?")
-        params.append(f"%{employee}%")
+    if employee_id is not None:
+        where.append("expenses.user_id = ?")
+        params.append(employee_id)
     if category:
         where.append("expenses.category = ?")
         params.append(category)
