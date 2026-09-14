@@ -9,7 +9,7 @@ import {
   HelpCircle,
   Home,
   ReceiptText,
-  Settings,
+  UserRound,
   ShieldCheck,
   Upload,
   Users,
@@ -18,8 +18,11 @@ import type { User } from "../types";
 
 const props = defineProps<{
   user: User;
+  // page：独立页面（保留左侧目录）；drawer：右侧抽屉（无目录，靠顶部标签跳转）
+  variant?: "page" | "drawer";
 }>();
 
+const isDrawer = computed(() => props.variant === "drawer");
 const isAdmin = computed(() => props.user.role === "admin");
 
 const employeeSections = [
@@ -52,11 +55,17 @@ function scrollTo(id: string) {
 </script>
 
 <template>
-  <div class="page-reading pb-10">
-    <header class="overflow-hidden rounded-panel border border-accent-line bg-accent-soft p-6 sm:p-8">
+  <div :class="isDrawer ? 'space-y-5 px-5 pb-8 pt-5' : 'page-reading pb-10'">
+    <header
+      class="overflow-hidden rounded-panel border border-accent-line bg-accent-soft"
+      :class="isDrawer ? 'p-5' : 'p-6 sm:p-8'"
+    >
       <div class="flex flex-wrap items-start gap-4">
-        <div class="grid h-12 w-12 shrink-0 place-items-center rounded-control bg-accent text-white">
-          <BookOpen class="h-6 w-6" />
+        <div
+          class="grid shrink-0 place-items-center rounded-control bg-accent text-white"
+          :class="isDrawer ? 'h-10 w-10' : 'h-12 w-12'"
+        >
+          <BookOpen :class="isDrawer ? 'h-5 w-5' : 'h-6 w-6'" />
         </div>
         <div class="min-w-0 flex-1">
           <h1 class="page-title">使用指南</h1>
@@ -66,7 +75,8 @@ function scrollTo(id: string) {
         </div>
       </div>
 
-      <div class="mt-6 flex flex-wrap gap-2">
+      <!-- 抽屉里没有侧边目录，用这些标签做跳转 -->
+      <div class="flex flex-wrap gap-2" :class="isDrawer ? 'mt-4' : 'mt-6'">
         <button
           v-for="item in sections"
           :key="item.id"
@@ -79,8 +89,8 @@ function scrollTo(id: string) {
       </div>
     </header>
 
-    <div class="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start">
-      <aside class="hidden lg:block">
+    <div :class="isDrawer ? '' : 'grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start'">
+      <aside v-if="!isDrawer" class="hidden lg:block">
         <nav class="sticky top-6 space-y-1 rounded-control border border-hairline bg-white p-3">
           <p class="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">目录</p>
           <button
@@ -110,8 +120,8 @@ function scrollTo(id: string) {
                 <ul class="guide-list mt-2">
                   <li><Home class="guide-inline-icon" /> 个人报销</li>
                   <li><ReceiptText class="guide-inline-icon" /> 自己的报销记录</li>
-                  <li><BookOpen class="guide-inline-icon" /> 使用指南</li>
-                  <li><Settings class="guide-inline-icon" /> 个人设置</li>
+                  <li><BookOpen class="guide-inline-icon" /> 使用指南（右上角问号）</li>
+                  <li><UserRound class="guide-inline-icon" /> 账号信息与修改密码（右上角用户名）</li>
                 </ul>
               </div>
               <div class="rounded-control border border-accent-line bg-accent-soft p-4">
@@ -167,7 +177,7 @@ function scrollTo(id: string) {
                 <h3 class="guide-subtitle">替票选「否」</h3>
                 <p class="mt-2 text-sm text-slate-600">一张发票只能用于一笔报销；一笔报销可包含多张发票，票面合计须与报销金额<strong>完全一致</strong>。</p>
               </div>
-              <div class="rounded-control border border-state-warn-line bg-state-warn-soft p-4">
+              <div class="rounded-control border border-hairline bg-white p-4">
                 <h3 class="guide-subtitle text-state-warn-ink">替票选「是」</h3>
                 <p class="mt-2 text-sm text-slate-600">发票与报销金额不一致时，需填写<strong>替票说明</strong>后再提交。</p>
               </div>
@@ -254,7 +264,7 @@ function scrollTo(id: string) {
                 <tbody class="divide-y divide-hairline">
                   <tr>
                     <td class="px-4 py-3 font-medium">员工</td>
-                    <td class="px-4 py-3 text-slate-600">个人报销、个人设置、使用指南</td>
+                    <td class="px-4 py-3 text-slate-600">个人报销、报销记录、使用指南、账号信息与修改密码</td>
                   </tr>
                   <tr>
                     <td class="px-4 py-3 font-medium">管理员</td>

@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import AppShell from "./components/AppShell.vue";
+import GuideDrawer from "./components/GuideDrawer.vue";
 import GuideWelcomeModal from "./components/GuideWelcomeModal.vue";
 import LoginView from "./views/LoginView.vue";
 import MonthlyView from "./views/MonthlyView.vue";
 import HistoryView from "./views/HistoryView.vue";
-import SettingsView from "./views/SettingsView.vue";
-import GuideView from "./views/GuideView.vue";
 import AdminUsersView from "./views/AdminUsersView.vue";
 import { clearToken, getMe, listExpenses, logout, markGuideSeen } from "./services/api";
 import type { Expense, User, ViewKey } from "./types";
@@ -19,6 +18,7 @@ const loadingSession = ref(true);
 const refreshKey = ref(0);
 const allExpenses = ref<Expense[]>([]);
 const showGuideWelcome = ref(false);
+const showGuideDrawer = ref(false);
 
 const draftCount = computed(() => allExpenses.value.filter((e) => e.status === "pending").length);
 const pendingOcrCount = computed(() =>
@@ -44,7 +44,7 @@ function maybeShowGuideWelcome() {
 async function dismissGuideWelcome(openFullGuide = false) {
   if (!user.value || user.value.guide_seen) {
     showGuideWelcome.value = false;
-    if (openFullGuide) currentView.value = "guide";
+    if (openFullGuide) showGuideDrawer.value = true;
     return;
   }
   try {
@@ -53,7 +53,7 @@ async function dismissGuideWelcome(openFullGuide = false) {
     user.value = { ...user.value, guide_seen: true };
   }
   showGuideWelcome.value = false;
-  if (openFullGuide) currentView.value = "guide";
+  if (openFullGuide) showGuideDrawer.value = true;
 }
 
 function ensureAllowedView() {
@@ -129,6 +129,7 @@ watch(
     :pending-ocr-count="pendingOcrCount"
     @change-view="handleChangeView"
     @logout="handleLogout"
+    @open-guide="showGuideDrawer = true"
   >
     <GuideWelcomeModal
       :open="showGuideWelcome"
@@ -136,6 +137,7 @@ watch(
       @dismiss="dismissGuideWelcome(false)"
       @view-full-guide="dismissGuideWelcome(true)"
     />
+    <GuideDrawer :open="showGuideDrawer" :user="user" @close="showGuideDrawer = false" />
     <MonthlyView
       v-show="currentView === 'monthly'"
       :user="user"
@@ -148,8 +150,6 @@ watch(
       :refresh-key="refreshKey"
       @expenses-changed="refreshKey += 1"
     />
-    <SettingsView v-show="currentView === 'settings'" :user="user" />
-    <GuideView v-show="currentView === 'guide'" :user="user" />
     <AdminUsersView v-show="currentView === 'admin-users'" v-if="user.role === 'admin'" />
   </AppShell>
 </template>

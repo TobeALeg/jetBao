@@ -231,7 +231,7 @@ function tableSectionClass(sectionKey: TableSection["key"]): string {
 function recordStateBarClass(expense: Expense): string {
   const state = recordState(expense);
   if (state === "ready") return "border-l-accent";
-  if (state === "missing_material") return "border-l-amber-500";
+  if (state === "missing_material") return "border-l-amber-600";
   if (state === "rejected") return "border-l-rose-600";
   if (state === "approved") return "border-l-slate-300";
   return "border-l-slate-200";
@@ -804,7 +804,8 @@ function handleVisibilityChange() {
           </div>
         </div>
 
-        <div v-if="showSubstituteReason" class="mt-5 rounded-control border border-state-warn-line bg-state-warn-soft/70 px-4 py-3">
+        <!-- 仅去掉琥珀底色，其余保持原样；提示靠标签文字表达 -->
+        <div v-if="showSubstituteReason" class="mt-5 rounded-control border border-hairline bg-white px-4 py-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <label class="text-sm font-medium text-state-warn-ink" for="substitute-reason-input">替票说明</label>
             <span v-if="amountsMismatch && !isNewSubstitute" class="text-xs text-state-warn-ink">金额不一致，请先选择替票「是」</span>
@@ -814,7 +815,7 @@ function handleVisibilityChange() {
             id="substitute-reason-input"
             ref="substituteReasonInput"
             v-model="substituteReason"
-            class="mt-2 min-h-[84px] w-full rounded-control border border-state-warn-line bg-white px-3 py-2 text-sm text-slate-800 outline-none transition duration-1 ease-standard focus:border-state-warn-ink focus:ring-[3px] focus:ring-state-warn-line"
+            class="mt-2 min-h-[84px] w-full rounded-control border border-line-strong bg-white px-3 py-2 text-sm text-slate-800 outline-none transition duration-1 ease-standard focus:border-accent focus:ring-[3px] focus:ring-accent/20"
             :disabled="!isNewSubstitute"
             :placeholder="isNewSubstitute ? '例如：发票含其他项目，本次仅报销其中一部分' : '选择替票「是」后在此填写说明'"
           />
@@ -823,8 +824,9 @@ function handleVisibilityChange() {
 
       <input ref="evidenceInput" class="hidden" type="file" accept="image/*,.pdf" multiple @change="handleEvidenceInput" />
       <input ref="invoiceInput" class="hidden" type="file" accept="image/*,.pdf" multiple @change="handleInvoiceInput" />
-      <div class="grid gap-px border-y border-hairline bg-hairline lg:grid-cols-2">
-        <div class="space-y-3 bg-white p-5">
+      <!-- 上传区：靠留白分隔，不再叠 solid 分隔线（虚线框本身已经说明了「这里是上传区」） -->
+      <div class="grid gap-5 p-5 lg:grid-cols-2 lg:gap-6">
+        <div class="space-y-3">
           <div class="flex items-center justify-between"><span class="field-label">上传佐证材料</span><span class="text-xs text-slate-500">可一次上传多张</span></div>
           <div
             class="upload-zone min-h-28 w-full rounded-control border border-dashed"
@@ -869,7 +871,7 @@ function handleVisibilityChange() {
           </div>
         </div>
 
-        <div class="space-y-3 bg-white p-5">
+        <div class="space-y-3">
           <div class="flex items-center justify-between"><span class="field-label">上传发票</span><span class="text-xs text-slate-500">可多选，OCR 自动识别多张</span></div>
           <div
             class="upload-zone min-h-28 w-full rounded-control border border-dashed"
