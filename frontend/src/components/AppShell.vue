@@ -17,7 +17,7 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="min-h-screen bg-stone-50 text-ink">
+  <div class="min-h-screen bg-surface-canvas text-slate-900">
     <div class="flex min-h-screen flex-col lg:flex-row">
       <SidebarNav
         :user="user"

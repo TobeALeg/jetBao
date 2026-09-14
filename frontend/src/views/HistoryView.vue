@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { CheckCheck, ChevronDown, ChevronRight, Download, Eye, Search } from "lucide-vue-next";
+import { CheckCheck, ChevronRight, Download, Eye, Search } from "lucide-vue-next";
 import AdminExpenseReviewModal from "../components/AdminExpenseReviewModal.vue";
 import {
   approveExpense,
@@ -173,17 +173,26 @@ function statusLabel(status: string, rejectReason = "", forAdmin = false): strin
   return status;
 }
 
+// 硬规则：action(青) 只表示"需要你动手"；等审核/已归档降为 neutral / done
 function statusClass(status: string, rejectReason = ""): string {
-  if (status === "pending" && rejectReason) return "bg-rose-50 text-rose-700";
-  if (status === "matched") return "bg-teal-50 text-teal-700";
-  if (status === "reviewed") return "bg-slate-100 text-slate-500";
-  return "bg-amber-50 text-amber-700";
+  if (status === "pending" && rejectReason) return "state-danger";
+  if (status === "matched") return "state-neutral";
+  if (status === "reviewed") return "state-done";
+  return "state-warn";
+}
+
+// 左侧 3px 色条：不依赖颜色的第二个状态信号（色盲 / 强光下仍可读）
+function statusBarClass(status: string, rejectReason = ""): string {
+  if (status === "pending" && rejectReason) return "border-l-rose-600";
+  if (status === "reviewed") return "border-l-slate-300";
+  if (status === "matched") return "border-l-slate-300";
+  return "border-l-amber-500";
 }
 
 function employeeRowClass(row: LedgerRow): string {
-  if (row.status === "reviewed") return "bg-slate-50/80 text-slate-500";
-  if (row.status === "pending" && row.reject_reason) return "bg-rose-50/30";
-  return "hover:bg-slate-50/70";
+  if (row.status === "reviewed") return "bg-state-done-soft text-slate-500";
+  if (row.status === "pending" && row.reject_reason) return "bg-state-danger-soft/40";
+  return "";
 }
 
 function groupTotal(group: LedgerRow[]): number {
@@ -303,15 +312,16 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-[88rem] space-y-5">
+  <div class="page">
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 class="page-title">{{ isAdmin ? "报销记录总览" : "我的报销记录" }}</h1>
         <p class="muted mt-1">{{ isAdmin ? "所有人的报销记录，可按年份、月份筛选并归档查看。" : "查看你的历史报销记录。" }}</p>
       </div>
       <div v-if="isAdmin" class="flex flex-wrap items-center gap-2">
+        <!-- 本屏唯一的实心主操作 -->
         <button
-          class="primary-button h-10 shrink-0"
+          class="primary-button is-anchor shrink-0"
           :disabled="approvingAll || loading || !resultsAreCurrent || !reviewableCount"
           type="button"
           @click="handleApproveAll"
@@ -320,7 +330,7 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
           {{ approvingAll ? "通过中..." : `一键通过（${reviewableCount}）` }}
         </button>
         <button
-          class="secondary-button h-10 shrink-0"
+          class="secondary-button shrink-0"
           :disabled="exporting"
           type="button"
           @click="handleExport"
@@ -331,7 +341,7 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
     </div>
 
     <!-- Filters -->
-    <section class="tool-panel rounded-lg p-4 sm:p-5">
+    <section class="tool-panel p-4 sm:p-5">
       <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <div>
           <label class="field-label">年份</label>
@@ -375,20 +385,22 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
           </select>
         </div>
         <div class="flex items-end">
-          <button class="primary-button h-10 w-full" type="button" @click="search">
+          <button class="primary-button w-full" type="button" @click="search">
             <Search class="h-4 w-4" /> 查询
           </button>
         </div>
       </div>
     </section>
 
-    <p v-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
-    <p v-if="success" class="rounded-md bg-teal-50 px-3 py-2 text-sm text-teal-800">{{ success }}</p>
+    <p v-if="error" class="rounded-control bg-state-danger-soft px-3 py-2 text-sm text-state-danger-ink">{{ error }}</p>
+    <p v-if="success" class="rounded-control bg-state-action-soft px-3 py-2 text-sm text-state-action-ink">{{ success }}</p>
 
     <div v-if="loading" class="py-12 text-center text-sm text-slate-500">加载中...</div>
 
-    <div v-else-if="!rows.length" class="empty-state py-12">
-      <Search class="h-6 w-6" />
+    <div v-else-if="!rows.length" class="empty-state">
+      <div class="empty-state-icon">
+        <Search class="h-6 w-6" />
+      </div>
       <div>
         <div class="text-sm font-medium text-slate-700">没有匹配记录</div>
         <div class="mt-1 text-xs text-slate-500">调整筛选条件试试。</div>
@@ -405,119 +417,131 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
         <section
           v-for="[month, group] in months"
           :key="month"
-          class="tool-panel overflow-hidden rounded-lg"
+          class="tool-panel overflow-hidden"
         >
           <button
-            class="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-slate-50"
+            class="flex w-full items-center justify-between px-5 py-4 text-left transition duration-1 ease-standard hover:bg-surface-soft"
             type="button"
+            :aria-expanded="expandedMonths.has(month)"
             @click="toggleMonth(month)"
           >
             <div class="flex min-w-0 items-center gap-3">
-              <ChevronDown v-if="expandedMonths.has(month)" class="h-4 w-4 shrink-0 text-slate-400" />
-              <ChevronRight v-else class="h-4 w-4 shrink-0 text-slate-400" />
-              <h2 class="truncate text-base font-semibold text-ink">{{ formatMonthLabel(month) }}</h2>
+              <!-- 单个箭头：向右 → 向下，旋转而非换图标，这样过渡才连得上 -->
+              <ChevronRight
+                class="h-4 w-4 shrink-0 text-slate-400 transition-transform duration-2 ease-standard"
+                :class="expandedMonths.has(month) ? 'rotate-90' : ''"
+              />
+              <h2 class="truncate text-base font-semibold text-slate-900">{{ formatMonthLabel(month) }}</h2>
               <span class="shrink-0 text-xs text-slate-500">{{ group.length }} 笔</span>
             </div>
-            <span class="shrink-0 pl-3 text-sm font-semibold text-slate-700">{{ formatCurrency(groupTotal(group)) }}</span>
+            <span class="num shrink-0 pl-3 text-sm font-semibold text-slate-700">{{ formatCurrency(groupTotal(group)) }}</span>
           </button>
 
-          <div v-if="expandedMonths.has(month)" class="overflow-x-auto border-t border-slate-200">
-            <table class="w-full min-w-[72rem] table-fixed divide-y divide-slate-200 text-left text-sm">
-              <colgroup>
-                <col v-if="isAdmin" class="w-[7rem]" />
-                <col class="w-[10rem]" />
-                <col class="w-[7rem]" />
-                <col class="w-[6.5rem]" />
-                <col />
-                <col class="w-[4.5rem]" />
-                <col class="w-[5.5rem]" />
-                <col class="w-[8rem]" />
-                <col v-if="isAdmin" class="w-[13.5rem]" />
-              </colgroup>
-              <thead class="bg-slate-50 text-xs font-medium text-slate-500">
-                <tr>
-                  <th v-if="isAdmin" class="px-4 py-3">员工</th>
-                  <th class="px-4 py-3">项目</th>
-                  <th class="px-4 py-3">类别</th>
-                  <th class="px-4 py-3">金额</th>
-                  <th class="px-4 py-3">发票</th>
-                  <th class="px-4 py-3">替票</th>
-                  <th class="px-4 py-3">状态</th>
-                  <th class="px-4 py-3">时间</th>
-                  <th v-if="isAdmin" class="px-4 py-3">操作</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-100 bg-white">
-                <tr
-                  v-for="row in group"
-                  :key="row.id"
-                  :class="isAdmin ? (row.status === 'reviewed' ? 'bg-slate-50/50 text-slate-500' : 'hover:bg-slate-50/70') : employeeRowClass(row)"
-                >
-                  <td v-if="isAdmin" class="truncate whitespace-nowrap px-4 py-3 font-medium text-slate-900" :title="row.employee_name">
-                    {{ row.employee_name }}
-                  </td>
-                  <td class="truncate px-4 py-3 font-medium text-slate-900" :title="row.project_name || row.note || ''">
-                    {{ row.project_name || row.note || "-" }}
-                  </td>
-                  <td class="truncate whitespace-nowrap px-4 py-3 text-slate-600">{{ row.category }}</td>
-                  <td class="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{{ formatCurrency(row.actual_amount) }}</td>
-                  <td class="px-4 py-3 text-slate-600">
-                    <div v-if="row.allocation_summary" class="truncate text-xs" :title="row.allocation_summary">{{ row.allocation_summary }}</div>
-                    <span v-else>-</span>
-                  </td>
-                  <td class="px-4 py-3">
-                    <span class="status-pill" :class="row.is_substitute ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'">
-                      {{ row.is_substitute ? "是" : "否" }}
-                    </span>
-                  </td>
-                  <td class="px-4 py-3">
-                    <span class="status-pill whitespace-nowrap" :class="statusClass(row.status, row.reject_reason)">
-                      {{ statusLabel(row.status, row.reject_reason, isAdmin) }}
-                    </span>
-                    <div v-if="row.reject_reason" class="mt-1 truncate text-xs text-rose-600" :title="row.reject_reason">打回：{{ row.reject_reason }}</div>
-                  </td>
-                  <td class="whitespace-nowrap px-4 py-3 text-slate-500">{{ formatDate(row.created_at) }}</td>
-                  <td v-if="isAdmin" class="whitespace-nowrap px-4 py-3">
-                    <div class="flex flex-nowrap items-center gap-1.5">
-                      <button
-                        v-if="row.status === 'matched' || row.status === 'reviewed'"
-                        class="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 px-2 text-xs text-slate-600 transition hover:bg-slate-100"
-                        type="button"
-                        @click="openReview(row)"
+          <!-- 展开过渡：grid-template-rows 0fr↔1fr，无需测量内容高度即可动画（与手风琴组件同一套做法） -->
+          <Transition name="collapse">
+            <div v-if="expandedMonths.has(month)" class="collapse-grid">
+              <div class="collapse-clip">
+                <div class="overflow-x-auto border-t border-hairline">
+                  <table class="w-full min-w-[72rem] table-fixed divide-y divide-hairline text-left text-sm">
+                    <colgroup>
+                      <col v-if="isAdmin" class="w-[7rem]" />
+                      <col class="w-[10rem]" />
+                      <col class="w-[7rem]" />
+                      <col class="w-[6.5rem]" />
+                      <col />
+                      <col class="w-[4.5rem]" />
+                      <col class="w-[5.5rem]" />
+                      <col class="w-[8rem]" />
+                      <col v-if="isAdmin" class="w-[13.5rem]" />
+                    </colgroup>
+                    <thead class="bg-surface-soft text-xs font-medium text-slate-500">
+                      <tr>
+                        <th v-if="isAdmin" class="px-4 py-3">员工</th>
+                        <th class="px-4 py-3">项目</th>
+                        <th class="px-4 py-3">类别</th>
+                        <th class="px-4 py-3">金额</th>
+                        <th class="px-4 py-3">发票</th>
+                        <th class="px-4 py-3">替票</th>
+                        <th class="px-4 py-3">状态</th>
+                        <th class="px-4 py-3">时间</th>
+                        <th v-if="isAdmin" class="px-4 py-3">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-hairline bg-white">
+                      <tr
+                        v-for="row in group"
+                        :key="row.id"
+                        class="transition duration-2 ease-standard"
+                        :class="isAdmin ? (row.status === 'reviewed' ? 'bg-state-done-soft text-slate-500' : 'hover:bg-surface-soft') : employeeRowClass(row)"
                       >
-                        <Eye class="h-3.5 w-3.5 shrink-0" />
-                        <span>预览</span>
-                      </button>
-                      <button
-                        v-if="row.status === 'matched'"
-                        class="inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md bg-teal-50 px-2 text-xs text-teal-700 transition hover:bg-teal-100"
-                        type="button"
-                        @click="handleApprove(row)"
-                      >
-                        通过
-                      </button>
-                      <button
-                        v-if="row.status === 'matched'"
-                        class="inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md border border-amber-200 bg-amber-50 px-2 text-xs text-amber-700 transition hover:bg-amber-100"
-                        type="button"
-                        @click="handleReject(row)"
-                      >
-                        打回
-                      </button>
-                      <button
-                        v-if="row.status === 'reviewed'"
-                        class="inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md border border-slate-200 px-2 text-xs text-slate-500 transition hover:bg-slate-100"
-                        type="button"
-                        @click="handleUnreview(row)"
-                      >
-                        撤销
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                        <td v-if="isAdmin" class="truncate whitespace-nowrap px-4 py-3 font-medium" :class="row.status === 'reviewed' ? '' : 'text-slate-900'" :title="row.employee_name">
+                          {{ row.employee_name }}
+                        </td>
+                        <td class="truncate px-4 py-3 font-medium" :class="row.status === 'reviewed' ? '' : 'text-slate-900'" :title="row.project_name || row.note || ''">
+                          {{ row.project_name || row.note || "-" }}
+                        </td>
+                        <td class="truncate whitespace-nowrap px-4 py-3 text-slate-600">{{ row.category }}</td>
+                        <td class="num whitespace-nowrap px-4 py-3 font-medium" :class="row.status === 'reviewed' ? '' : 'text-slate-900'">{{ formatCurrency(row.actual_amount) }}</td>
+                        <td class="px-4 py-3 text-slate-600">
+                          <div v-if="row.allocation_summary" class="truncate text-xs" :title="row.allocation_summary">{{ row.allocation_summary }}</div>
+                          <span v-else>-</span>
+                        </td>
+                        <td class="px-4 py-3">
+                          <span class="chip">{{ row.is_substitute ? "是" : "否" }}</span>
+                        </td>
+                        <td class="border-l-[3px] px-4 py-3" :class="statusBarClass(row.status, row.reject_reason)">
+                          <span class="status-pill" :class="statusClass(row.status, row.reject_reason)">
+                            {{ statusLabel(row.status, row.reject_reason, isAdmin) }}
+                          </span>
+                          <div v-if="row.reject_reason" class="mt-1 truncate text-xs text-state-danger-ink" :title="row.reject_reason">打回：{{ row.reject_reason }}</div>
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 text-slate-500">{{ formatDate(row.created_at) }}</td>
+                        <td v-if="isAdmin" class="whitespace-nowrap px-4 py-3">
+                          <div class="flex flex-nowrap items-center gap-1.5">
+                            <!-- 管理员的「通过」是本屏最该点的动作，用柔和主色；
+                                 打回用危险色；其余为次级/幽灵，避免满屏实心块 -->
+                            <button
+                              v-if="row.status === 'matched' || row.status === 'reviewed'"
+                              class="secondary-button btn-xs"
+                              type="button"
+                              @click="openReview(row)"
+                            >
+                              <Eye class="h-3.5 w-3.5 shrink-0" />
+                              <span>预览</span>
+                            </button>
+                            <button
+                              v-if="row.status === 'matched'"
+                              class="primary-button btn-xs"
+                              type="button"
+                              @click="handleApprove(row)"
+                            >
+                              通过
+                            </button>
+                            <button
+                              v-if="row.status === 'matched'"
+                              class="secondary-button btn-xs text-state-warn-ink hover:border-state-warn-line hover:bg-state-warn-soft"
+                              type="button"
+                              @click="handleReject(row)"
+                            >
+                              打回
+                            </button>
+                            <button
+                              v-if="row.status === 'reviewed'"
+                              class="secondary-button btn-xs"
+                              type="button"
+                              @click="handleUnreview(row)"
+                            >
+                              撤销
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </Transition>
         </section>
       </div>
     </div>
@@ -531,3 +555,35 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
     />
   </div>
 </template>
+
+<style scoped>
+/* 「从上到下抽出」：动画 grid-template-rows 0fr↔1fr，
+   不需要测量内容高度，因此任意行数都能平滑展开。
+   与 components/InlineAccordionSelect.vue 用同一套做法，保持一致。 */
+.collapse-grid {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.collapse-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: grid-template-rows var(--dur-3) var(--ease-standard);
+}
+
+.collapse-enter-from,
+.collapse-leave-to {
+  grid-template-rows: 0fr;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapse-enter-active,
+  .collapse-leave-active {
+    transition: none !important;
+  }
+}
+</style>

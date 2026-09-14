@@ -248,17 +248,17 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="mx-auto max-w-7xl space-y-5">
+  <div class="page">
     <div>
       <h1 class="page-title">人员管理</h1>
       <p class="muted mt-1">员工账号、角色和公司主体维护。</p>
     </div>
 
-    <p v-if="success" class="rounded-md bg-teal-50 px-3 py-2 text-sm text-teal-800">{{ success }}</p>
+    <p v-if="success" class="rounded-control bg-state-action-soft px-3 py-2 text-sm text-state-action-ink">{{ success }}</p>
 
     <section
       ref="newUserCard"
-      class="new-user-card error-surface t-input tool-panel relative overflow-hidden rounded-lg p-5"
+      class="new-user-card error-surface t-input tool-panel relative overflow-hidden p-5"
       :class="{
         'is-shimmering': cardShimmering,
         'is-error': cardHasError,
@@ -268,7 +268,7 @@ onMounted(load);
     >
       <div class="mb-4">
         <h2 class="section-title">新增员工</h2>
-        <p v-if="newUserError" class="t-error-msg mt-1 text-xs font-medium text-rose-600">{{ newUserError }}</p>
+        <p v-if="newUserError" class="t-error-msg mt-1 text-xs font-medium text-state-danger-ink">{{ newUserError }}</p>
       </div>
       <form ref="newUserForm" class="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6" novalidate @submit.prevent="create">
         <label v-if="authConfig && !nameManagedBySso" class="inline-edit-wrap create-field-line">
@@ -338,18 +338,18 @@ onMounted(load);
 
     <section
       ref="usersCard"
-      class="error-surface t-input tool-panel overflow-hidden rounded-lg"
+      class="error-surface t-input tool-panel overflow-hidden"
       :class="{ 'is-error': Boolean(usersError), 'is-shaking': usersErrorShaking }"
       @input="clearUsersError"
     >
-      <div class="border-b border-slate-200 px-4 py-3">
+      <div class="border-b border-hairline px-4 py-3">
         <div class="flex items-center justify-between gap-3">
           <div>
             <h2 class="section-title">员工列表</h2>
             <p class="muted mt-1">{{ loading ? "正在加载..." : `共 ${users.length} 个账号` }}</p>
           </div>
           <button
-            class="primary-button h-9 shrink-0 px-3"
+            class="primary-button is-anchor h-control-lg shrink-0"
             type="button"
             :disabled="saving || !hasPendingChanges"
             @click="saveAll"
@@ -358,7 +358,7 @@ onMounted(load);
             {{ saving ? "保存中..." : "保存更改" }}
           </button>
         </div>
-        <p v-if="usersError" class="t-error-msg mt-2 text-xs font-medium text-rose-600">{{ usersError }}</p>
+        <p v-if="usersError" class="t-error-msg mt-2 text-xs font-medium text-state-danger-ink">{{ usersError }}</p>
       </div>
 
       <div v-if="loading" class="px-5 py-12 text-center text-sm text-slate-500">正在加载...</div>
@@ -387,7 +387,7 @@ onMounted(load);
             <col v-if="passwordManagedLocally" class="w-32" />
             <col class="w-24" />
           </colgroup>
-          <thead class="bg-slate-50 text-xs font-medium uppercase tracking-normal text-slate-500">
+          <thead class="bg-surface-soft text-xs font-medium uppercase tracking-normal text-slate-500">
             <tr>
               <th v-if="!nameManagedBySso" class="px-3 py-2.5">账号</th>
               <th class="px-3 py-2.5">企业邮箱</th>
@@ -400,9 +400,9 @@ onMounted(load);
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 bg-white">
-            <tr v-for="user in users" :key="user.id" class="align-top hover:bg-slate-50/70">
+            <tr v-for="user in users" :key="user.id" class="align-top transition duration-2 ease-standard hover:bg-surface-soft">
               <td v-if="!nameManagedBySso" class="px-3 py-3 font-medium text-slate-900" :title="user.username">
-                <div class="flex h-9 items-center truncate whitespace-nowrap">{{ user.username }}</div>
+                <div class="flex h-control-lg items-center truncate whitespace-nowrap">{{ user.username }}</div>
               </td>
               <td class="px-3 py-3">
                 <div class="inline-edit-wrap" :class="{ 'is-modified': fieldChanged(user, 'email') }">
@@ -415,10 +415,10 @@ onMounted(load);
                     type="email"
                   />
                 </div>
-                <p v-if="user.identity_id" class="mt-1 text-xs text-teal-700">已绑定统一身份，不可直接修改</p>
+                <p v-if="user.identity_id" class="mt-1 text-xs text-accent-ink">已绑定统一身份，不可直接修改</p>
               </td>
               <td class="px-3 py-3">
-                <div v-if="nameManagedBySso" class="flex h-9 items-center px-1 text-slate-700">
+                <div v-if="nameManagedBySso" class="flex h-control-lg items-center px-1 text-slate-700">
                   {{ user.employee_name || "MentiHub 姓名暂不可用" }}
                 </div>
                 <div v-else class="inline-edit-wrap" :class="{ 'is-modified': fieldChanged(user, 'employee_name') }">
@@ -458,7 +458,7 @@ onMounted(load);
               </td>
               <td class="px-3 py-3">
                 <div class="flex">
-                  <button class="secondary-button h-8 px-2.5 text-xs text-rose-700" type="button" :disabled="saving" @click="remove(user)">
+                  <button class="secondary-button btn-xs text-state-danger-ink" type="button" :disabled="saving" @click="remove(user)">
                     <Trash2 class="h-4 w-4" />
                     删除
                   </button>
@@ -481,7 +481,7 @@ onMounted(load);
 }
 
 .inline-edit-wrap.is-modified {
-  background: #ecfdf5;
+  background: var(--accent-soft, #eef5f4);
 }
 
 .inline-edit-wrap::after {
@@ -491,7 +491,7 @@ onMounted(load);
   left: 0;
   height: 1px;
   content: "";
-  background: #0f766e;
+  background: var(--accent, #34756d);
   transform: scaleX(0);
   transform-origin: left;
   transition: transform 250ms cubic-bezier(0.22, 1, 0.36, 1);

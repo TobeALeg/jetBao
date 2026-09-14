@@ -44,9 +44,9 @@ function ocrStatusLabel(status: string): string {
 }
 
 function ocrStatusClass(status: string): string {
-  if (status === "success") return "bg-teal-50 text-teal-700";
-  if (status === "failed") return "bg-rose-50 text-rose-700";
-  return "bg-amber-50 text-amber-700";
+  if (status === "success") return "state-action";
+  if (status === "failed") return "state-danger";
+  return "state-warn";
 }
 
 function isOcrWarning(status: string): boolean {
@@ -193,9 +193,9 @@ async function handleDrop(event: DragEvent) {
 <template>
   <div class="flex min-h-64 flex-col gap-3">
     <button
-      class="flex w-full flex-col items-center justify-center rounded-lg border border-dashed px-4 text-center transition"
+      class="flex w-full flex-col items-center justify-center rounded-control border border-dashed px-4 text-center transition"
       style="height: 175px"
-      :class="dragging ? 'border-teal-600 bg-teal-50' : 'border-slate-300 bg-slate-50 hover:border-teal-600 hover:bg-teal-50/40'"
+      :class="dragging ? 'border-accent bg-accent-soft' : 'border-line-strong bg-surface-soft hover:border-accent hover:bg-accent-soft'"
       type="button"
       :disabled="uploading"
       @click="inputRef?.click()"
@@ -204,8 +204,8 @@ async function handleDrop(event: DragEvent) {
       @dragleave.prevent="handleDragLeave"
       @drop.prevent="handleDrop"
     >
-      <Loader2 v-if="uploading" class="h-6 w-6 animate-spin text-teal-700" />
-      <FileUp v-else class="h-6 w-6 text-teal-700" />
+      <Loader2 v-if="uploading" class="h-6 w-6 animate-spin text-accent-ink" />
+      <FileUp v-else class="h-6 w-6 text-accent-ink" />
       <span class="mt-3 text-sm font-medium text-slate-800">
         {{ uploading ? uploadingLabel : dragging ? "松开上传" : "拖拽或点击上传发票" }}
       </span>
@@ -219,23 +219,23 @@ async function handleDrop(event: DragEvent) {
       {{ pooling ? "正在加入..." : "加入发票池" }}
     </button>
 
-    <p v-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
+    <p v-if="error" class="rounded-control bg-state-danger-soft px-3 py-2 text-sm text-state-danger-ink">{{ error }}</p>
 
-    <div v-if="duplicateAttachments.length" class="space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+    <div v-if="duplicateAttachments.length" class="space-y-1 rounded-control border border-state-warn-line bg-state-warn-soft px-3 py-2 text-xs text-state-warn-ink">
       <div>{{ duplicateAttachments.length }} 个附件疑似重复：</div>
       <div v-for="att in duplicateAttachments" :key="att.id" class="pl-2">
         {{ att.original_filename }}<span v-if="att.duplicate_of?.length"> 与 {{ att.duplicate_of.map((d) => `${d.employee_name} 的 ${d.filename}`).join("、") }} 重复</span>
       </div>
     </div>
 
-    <div v-if="allInvoiceItems.length" class="flex items-center gap-3 rounded-md border border-teal-100 bg-teal-50 px-3 py-2 text-xs text-teal-800">
+    <div v-if="allInvoiceItems.length" class="flex items-center gap-3 rounded-control border border-accent-line bg-accent-soft px-3 py-2 text-xs text-accent-ink">
       <span>已识别 <strong>{{ allInvoiceItems.length }}</strong> 条</span>
       <span>合计 <strong>{{ formatCurrency(recognizedAmountTotal) }}</strong></span>
     </div>
 
-    <div v-for="attachment in attachments" :key="attachment.id" class="rounded-lg border border-slate-200 bg-white">
+    <div v-for="attachment in attachments" :key="attachment.id" class="rounded-control border border-hairline bg-white">
       <div class="flex items-center gap-3 p-3">
-        <div class="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-md bg-slate-100">
+        <div class="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-control bg-surface-mute">
           <img
             v-if="attachment.preview_url"
             :src="attachment.preview_url"
@@ -254,14 +254,14 @@ async function handleDrop(event: DragEvent) {
             >
               {{ ocrStatusLabel(attachment.ocr_status) }}
             </span>
-            <span v-if="attachment.is_duplicate" class="status-pill bg-amber-50 text-amber-700">
+            <span v-if="attachment.is_duplicate" class="chip">
               重复
             </span>
           </div>
         </div>
         <button
           v-if="invoiceItemsOf(attachment).length"
-          class="grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          class="grid h-7 w-7 shrink-0 place-items-center rounded-control text-slate-400 transition hover:bg-surface-mute hover:text-slate-700"
           type="button"
           :title="expandedIds.has(attachment.id) ? '收起详情' : '展开详情'"
           @click="toggleExpanded(attachment.id)"
@@ -270,7 +270,7 @@ async function handleDrop(event: DragEvent) {
           <ChevronUp v-else class="h-4 w-4" />
         </button>
         <button
-          class="inline-flex h-7 shrink-0 items-center rounded-md px-2 text-xs text-slate-500 transition hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:text-slate-300"
+          class="inline-flex h-control-xs shrink-0 items-center rounded-control px-2 text-xs text-slate-500 transition duration-1 ease-standard hover:bg-state-danger-soft hover:text-state-danger-ink disabled:cursor-not-allowed disabled:text-slate-300"
           type="button"
           :disabled="removingId === attachment.id"
           @click="$emit('remove', attachment.id)"
@@ -279,17 +279,17 @@ async function handleDrop(event: DragEvent) {
           {{ removingId === attachment.id ? "删除中" : "删除" }}
         </button>
       </div>
-      <div v-if="expandedIds.has(attachment.id)" class="space-y-2 border-t border-slate-100 px-3 py-3 text-xs text-slate-500">
+      <div v-if="expandedIds.has(attachment.id)" class="space-y-2 border-t border-hairline px-3 py-3 text-xs text-slate-500">
         <p>{{ messageOf(attachment) }}</p>
-        <p v-if="errorOf(attachment)" class="text-rose-700">{{ errorOf(attachment) }}</p>
+        <p v-if="errorOf(attachment)" class="text-state-danger-ink">{{ errorOf(attachment) }}</p>
         <div
           v-if="suggestedAmountOf(attachment) !== null"
-          class="inline-flex items-center rounded-md bg-teal-50 px-2 py-1 font-medium text-teal-800"
+          class="inline-flex items-center rounded-control bg-accent-soft px-2 py-1 font-medium text-accent-ink"
         >
           建议金额：{{ formatCurrency(suggestedAmountOf(attachment)) }}
         </div>
-        <div v-if="invoiceItemsOf(attachment).length" class="overflow-hidden rounded-md border border-slate-200">
-          <div class="border-b border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">
+        <div v-if="invoiceItemsOf(attachment).length" class="overflow-hidden rounded-control border border-hairline">
+          <div class="border-b border-hairline bg-surface-soft px-3 py-2 font-medium text-slate-700">
             票据条目（{{ invoiceItemsOf(attachment).length }}）
           </div>
           <div class="divide-y divide-slate-100">
@@ -303,15 +303,15 @@ async function handleDrop(event: DragEvent) {
               <div class="flex items-center justify-end gap-1.5 sm:justify-start">
                 <span
                   :class="{
-                    'text-teal-700': invoiceBuyerTone(item) === 'ok',
-                    'text-amber-700': invoiceBuyerTone(item) === 'warn',
-                    'text-rose-700': invoiceBuyerTone(item) === 'danger'
+                    'text-accent-ink': invoiceBuyerTone(item) === 'ok',
+                    'text-state-warn-ink': invoiceBuyerTone(item) === 'warn',
+                    'text-state-danger-ink': invoiceBuyerTone(item) === 'danger'
                   }"
                 >
                   购买方：{{ invoiceBuyerStatus(item) }}
                 </span>
-                <CheckCircle2 v-if="invoiceBuyerTone(item) === 'ok'" class="h-3.5 w-3.5 text-teal-700" />
-                <AlertTriangle v-else class="h-3.5 w-3.5" :class="invoiceBuyerTone(item) === 'warn' ? 'text-amber-600' : 'text-rose-600'" />
+                <CheckCircle2 v-if="invoiceBuyerTone(item) === 'ok'" class="h-3.5 w-3.5 text-accent-ink" />
+                <AlertTriangle v-else class="h-3.5 w-3.5" :class="invoiceBuyerTone(item) === 'warn' ? 'text-state-warn-ink' : 'text-state-danger-ink'" />
               </div>
             </div>
           </div>

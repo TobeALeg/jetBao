@@ -17,9 +17,9 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="group relative overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+  <div class="group relative overflow-hidden rounded-control border border-hairline bg-white shadow-flat">
     <button
-      class="block aspect-square w-full overflow-hidden transition hover:ring-2 hover:ring-teal-600/40"
+      class="block aspect-square w-full overflow-hidden transition hover:ring-2 hover:ring-accent/40"
       type="button"
       @click="emit('preview', attachment)"
     >
@@ -34,7 +34,7 @@ const emit = defineEmits<{
 
     <button
       v-if="removable"
-      class="absolute right-2 top-2 z-20 inline-flex h-8 min-w-8 items-center justify-center gap-1 rounded-full border border-rose-200 bg-rose-600 px-2 text-white shadow-md transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+      class="absolute right-2 top-2 z-20 inline-flex h-8 min-w-8 items-center justify-center gap-1 rounded-full border rounded-full border border-state-danger-line bg-state-danger-ink px-2 text-white shadow-raised transition duration-1 ease-standard hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
       :disabled="removing"
       type="button"
       aria-label="删除"
@@ -45,7 +45,7 @@ const emit = defineEmits<{
       <span class="text-[11px] font-medium leading-none">删除</span>
     </button>
 
-    <p class="truncate border-t border-slate-100 px-2 py-1.5 text-[11px] text-slate-600" :title="attachment.original_filename">
+    <p class="truncate border-t border-hairline px-2 py-1.5 text-[11px] text-slate-600" :title="attachment.original_filename">
       {{ attachment.original_filename }}
     </p>
   </div>

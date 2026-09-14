@@ -43,57 +43,57 @@ async function submitPasswordChange() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl space-y-6">
+  <div class="page-reading max-w-3xl">
     <div>
       <h1 class="page-title">个人设置</h1>
       <p class="muted mt-1">查看企业身份与报销账号信息。</p>
     </div>
 
-    <section class="tool-panel rounded-lg p-5">
+    <section class="tool-panel p-5">
       <h2 class="section-title">账号信息</h2>
       <div class="mt-4 space-y-4">
         <div class="flex items-start gap-3">
-          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-500">
+          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-control bg-surface-mute text-slate-500">
             <UserRound class="h-4 w-4" />
           </div>
           <div>
             <p class="text-xs text-slate-500">姓名</p>
-            <p class="mt-0.5 text-sm font-medium text-ink">{{ user.employee_name }}</p>
+            <p class="mt-0.5 text-sm font-medium text-slate-900">{{ user.employee_name }}</p>
           </div>
         </div>
         <div class="flex items-start gap-3">
-          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-500">
+          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-control bg-surface-mute text-slate-500">
             <UserRound class="h-4 w-4" />
           </div>
           <div>
             <p class="text-xs text-slate-500">用户名</p>
-            <p class="mt-0.5 text-sm font-medium text-ink">@{{ user.username }}</p>
+            <p class="mt-0.5 text-sm font-medium text-slate-900">@{{ user.username }}</p>
           </div>
         </div>
         <div v-if="user.email" class="flex items-start gap-3">
-          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-500">
+          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-control bg-surface-mute text-slate-500">
             <Mail class="h-4 w-4" />
           </div>
           <div>
             <p class="text-xs text-slate-500">企业邮箱</p>
-            <p class="mt-0.5 text-sm font-medium text-ink">{{ user.email }}</p>
+            <p class="mt-0.5 text-sm font-medium text-slate-900">{{ user.email }}</p>
           </div>
         </div>
         <div class="flex items-start gap-3">
-          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-500">
+          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-control bg-surface-mute text-slate-500">
             <Building2 class="h-4 w-4" />
           </div>
           <div>
             <p class="text-xs text-slate-500">公司主体</p>
-            <p class="mt-0.5 text-sm font-medium text-ink">{{ user.company_entity }}</p>
+            <p class="mt-0.5 text-sm font-medium text-slate-900">{{ user.company_entity }}</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section v-if="!user.email" class="tool-panel rounded-lg p-5">
+    <section v-if="!user.email" class="tool-panel p-5">
       <div class="flex items-center gap-2">
-        <KeyRound class="h-4 w-4 text-teal-700" />
+        <KeyRound class="h-4 w-4 text-accent-ink" />
         <h2 class="section-title">修改密码</h2>
       </div>
       <form class="mt-4 space-y-3" @submit.prevent="submitPasswordChange">
@@ -132,8 +132,8 @@ async function submitPasswordChange() {
             type="password"
           />
         </div>
-        <p v-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
-        <p v-if="success" class="rounded-md bg-teal-50 px-3 py-2 text-sm text-teal-800">{{ success }}</p>
+        <p v-if="error" class="rounded-control bg-state-danger-soft px-3 py-2 text-sm text-state-danger-ink">{{ error }}</p>
+        <p v-if="success" class="rounded-control bg-state-action-soft px-3 py-2 text-sm text-state-action-ink">{{ success }}</p>
         <div class="pt-1">
           <button class="primary-button" type="submit" :disabled="saving">
             <Loader2 v-if="saving" class="h-4 w-4 animate-spin" />

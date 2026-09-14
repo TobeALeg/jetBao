@@ -12,9 +12,9 @@ defineEmits<{
 </script>
 
 <template>
-  <header class="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 lg:px-8">
+  <header class="flex h-16 items-center justify-between border-b border-hairline bg-white px-4 sm:px-6 lg:px-8">
     <div class="min-w-0">
-      <div class="truncate text-sm font-medium text-ink">{{ user.company_entity }}</div>
+      <div class="truncate text-sm font-medium text-slate-900">{{ user.company_entity }}</div>
       <div class="text-xs text-slate-500">{{ user.role === "admin" ? "管理员" : "员工" }}</div>
     </div>
     <div class="flex items-center gap-3">
@@ -22,7 +22,7 @@ defineEmits<{
         <div class="text-sm font-medium text-slate-800">{{ user.employee_name }}</div>
         <div class="text-xs text-slate-500">{{ user.email || `@${user.username}` }}</div>
       </div>
-      <button class="secondary-button h-9 px-3" type="button" @click="$emit('logout')">
+      <button class="secondary-button px-3" type="button" @click="$emit('logout')">
         <LogOut class="h-4 w-4" />
         <span class="hidden sm:inline">退出</span>
       </button>

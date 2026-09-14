@@ -74,8 +74,8 @@ function closePreview() {
       class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/70 p-4"
       @click.self="emit('close')"
     >
-      <div class="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div class="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+      <div class="animate-scale-in relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-panel bg-white shadow-overlay">
+        <div class="flex items-start justify-between border-b border-hairline px-5 py-4">
           <div class="min-w-0 pr-4">
             <h2 class="text-base font-semibold text-slate-900">审核预览</h2>
             <p class="mt-1 truncate text-sm text-slate-600">
@@ -83,7 +83,7 @@ function closePreview() {
             </p>
           </div>
           <button
-            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-slate-500 transition duration-1 ease-standard hover:bg-surface-mute hover:text-slate-800"
             type="button"
             @click="emit('close')"
           >
@@ -92,11 +92,11 @@ function closePreview() {
         </div>
 
         <div class="flex-1 overflow-y-auto px-5 py-4">
-          <Loader2 v-if="loading" class="mx-auto my-10 h-8 w-8 animate-spin text-teal-700" />
-          <p v-else-if="error" class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
+          <Loader2 v-if="loading" class="mx-auto my-10 h-8 w-8 animate-spin text-accent-ink" />
+          <p v-else-if="error" class="rounded-control bg-state-danger-soft px-3 py-2 text-sm text-state-danger-ink">{{ error }}</p>
 
           <div v-else-if="detail" class="space-y-5">
-            <div class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm sm:grid-cols-2">
+            <div class="grid gap-3 rounded-control border border-hairline bg-surface-soft p-4 text-sm sm:grid-cols-2">
               <div><span class="text-slate-500">类别：</span>{{ detail.category }}</div>
               <div><span class="text-slate-500">月份：</span>{{ detail.expense_month }}</div>
               <div><span class="text-slate-500">状态：</span>{{ statusLabel(detail.status) }}</div>
@@ -119,7 +119,7 @@ function closePreview() {
                   @preview="openPreview"
                 />
               </div>
-              <p v-else class="rounded-md border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-500">
+              <p v-else class="rounded-control border border-dashed border-line-strong px-3 py-6 text-center text-sm text-slate-500">
                 暂无佐证材料
               </p>
             </section>
@@ -134,7 +134,7 @@ function closePreview() {
                   @preview="openPreview"
                 />
               </div>
-              <p v-else class="rounded-md border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-500">
+              <p v-else class="rounded-control border border-dashed border-line-strong px-3 py-6 text-center text-sm text-slate-500">
                 暂无发票
               </p>
               <div v-if="detail.allocations.length" class="mt-3 space-y-1 text-xs text-slate-600">
@@ -149,17 +149,17 @@ function closePreview() {
 
         <div
           v-if="detail && row.status === 'matched'"
-          class="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4"
+          class="flex items-center justify-end gap-2 border-t border-hairline px-5 py-4"
         >
           <button class="secondary-button h-9" type="button" @click="emit('close')">关闭</button>
-          <button class="h-9 rounded-md border border-amber-200 bg-amber-50 px-3 text-sm text-amber-700 transition hover:bg-amber-100" type="button" @click="emit('reject', row)">
+          <button class="secondary-button text-state-warn-ink hover:border-state-warn-line hover:bg-state-warn-soft" type="button" @click="emit('reject', row)">
             打回
           </button>
           <button class="primary-button h-9" type="button" @click="emit('approve', row)">
             通过
           </button>
         </div>
-        <div v-else class="flex items-center justify-end border-t border-slate-200 px-5 py-4">
+        <div v-else class="flex items-center justify-end border-t border-hairline px-5 py-4">
           <button class="secondary-button h-9" type="button" @click="emit('close')">关闭</button>
         </div>
       </div>
