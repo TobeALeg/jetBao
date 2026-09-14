@@ -16,12 +16,13 @@ import {
   linkExpenseAttachments,
   listExpenses,
   submitExpense,
+  updatePendingExpense,
   uploadAttachments,
   uploadInvoiceAttachments,
   withdrawExpense,
 } from "../services/api";
 import { currentReimbursementMonth, formatCurrency } from "../utils/format";
-import type { Attachment, Expense, ExpenseCreatePayload } from "../types";
+import type { Attachment, Expense, ExpenseCreatePayload, PendingExpenseUpdatePayload } from "../types";
 
 const props = defineProps<{
   user: { company_entity: string };
@@ -110,7 +111,12 @@ const invoiceAmountExceedsExpense = computed(() => {
 });
 const showSubstituteReason = computed(() => isNewSubstitute.value || invoiceAmountExceedsExpense.value);
 const canSubmitNew = computed(() => Boolean(stagedInvoiceItems.value.length && Number(expenseForm.value.actual_amount) > 0 && stagedInvoiceTotal.value >= Number(expenseForm.value.actual_amount)));
-const canSubmitExisting = computed(() => Boolean(isEditingPendingExpense.value && targetExpense.value && targetExpense.value.allocation_count > 0 && targetExpense.value.remaining_amount <= 0));
+const canSubmitExisting = computed(() => Boolean(
+  isEditingPendingExpense.value
+  && targetExpense.value?.allocation_count
+  && formActualAmount.value > 0
+  && linkedInvoiceAmount.value >= formActualAmount.value
+));
 const displayEvidenceAttachments = computed(() => [...(isEditingPendingExpense.value ? targetExpense.value?.attachments ?? [] : []), ...evidenceAttachments.value]);
 const displayInvoiceAttachments = computed<Attachment[]>(() => {
   if (stagedInvoices.value.length) return stagedInvoices.value;
@@ -146,6 +152,35 @@ const invoiceUploadLocked = computed(() => saving.value);
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function pendingExpensePayload(): PendingExpenseUpdatePayload {
+  const projectName = expenseForm.value.project_name.trim();
+  const actualAmount = Number(expenseForm.value.actual_amount);
+  const category = expenseForm.value.category.trim();
+  if (!projectName) throw new Error("请填写报销事项");
+  if (!actualAmount || actualAmount <= 0) throw new Error("请填写金额");
+  if (!category) throw new Error("请选择报销类别");
+  return {
+    project_name: projectName,
+    actual_amount: actualAmount,
+    category,
+    is_substitute: isNewSubstitute.value,
+    substitute_reason: substituteReason.value.trim(),
+  };
+}
+
+function replaceExpense(updated: Expense) {
+  expenses.value = expenses.value.map((expense) => expense.id === updated.id ? updated : expense);
+}
+
+async function persistPendingExpense(expenseId: number): Promise<Expense> {
+  const updated = await updatePendingExpense(expenseId, pendingExpensePayload());
+  replaceExpense(updated);
+  isNewSubstitute.value = updated.is_substitute;
+  substituteReason.value = updated.substitute_reason;
+  emit("refreshed");
+  return updated;
 }
 
 function recordState(expense: Expense): RecordState {
@@ -442,16 +477,18 @@ async function handleInvoiceFiles(files: File[]) {
   saving.value = true;
   error.value = "";
   try {
+    if (targetExpenseId.value) pendingExpensePayload();
     const uploaded = withUploadPreview(files, await uploadInvoiceAttachments(files));
     const recognizedCount = invoiceReferencesOf(uploaded).length;
     if (!recognizedCount) throw new Error("未识别到有效发票，请重新上传");
     if (targetExpenseId.value) {
+      const updated = await persistPendingExpense(targetExpenseId.value);
       const prepared = prepareInvoiceLinks(
         uploaded,
         Number(expenseForm.value.actual_amount),
         isNewSubstitute.value,
         substituteReason.value,
-        Number(targetExpense.value?.allocated_amount || 0)
+        Number(updated.allocated_amount || 0)
       );
       await linkInvoicesToExpense(targetExpenseId.value, prepared);
       await load();
@@ -539,14 +576,17 @@ async function saveNewExpense(submitAfter: boolean) {
 }
 
 async function saveDraft() {
-  if (targetExpenseId.value) {
-    isComposerOpen.value = false;
-    return;
-  }
   saving.value = true;
   error.value = "";
   success.value = "";
   try {
+    if (targetExpenseId.value) {
+      const updated = await persistPendingExpense(targetExpenseId.value);
+      success.value = `「${updated.project_name}」已保存修改`;
+      resetComposer();
+      isComposerOpen.value = false;
+      return;
+    }
     const created = await saveNewExpense(false);
     success.value = `「${created.project_name}」已保存到待补材料`;
     resetComposer();
@@ -574,6 +614,7 @@ async function submitCurrent() {
         setSubstitute(true);
         throw new Error("请填写替票说明后再提交");
       }
+      await persistPendingExpense(current.id);
       await submitExpense(current.id, {
         is_substitute: isNewSubstitute.value,
         substitute_reason: substituteReason.value.trim(),
@@ -711,9 +752,9 @@ function handleVisibilityChange() {
       </div>
       <div class="p-5">
         <div class="grid gap-x-7 gap-y-5 lg:grid-cols-[minmax(0,1fr)_150px_190px_150px]">
-          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">报销事项</span><input v-model="expenseForm.project_name" :disabled="isEditingPendingExpense" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700 disabled:text-slate-500" placeholder="填写报销事项" /></label>
-          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">金额</span><input v-model="expenseForm.actual_amount" :disabled="isEditingPendingExpense" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700 disabled:text-slate-500" inputmode="decimal" placeholder="0.00" /></label>
-          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">类别</span><select v-model="expenseForm.category" :disabled="isEditingPendingExpense" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700 disabled:text-slate-500"><option v-for="category in EXPENSE_CATEGORIES" :key="category">{{ category }}</option></select></label>
+          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">报销事项</span><input v-model="expenseForm.project_name" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700" placeholder="填写报销事项" /></label>
+          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">金额</span><input v-model="expenseForm.actual_amount" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700" inputmode="decimal" placeholder="0.00" /></label>
+          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">类别</span><select v-model="expenseForm.category" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700"><option v-for="category in EXPENSE_CATEGORIES" :key="category">{{ category }}</option></select></label>
           <div>
             <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">替票</span>
             <div class="mt-1 flex h-9 items-center gap-4 border-b border-slate-300 text-[14px] font-medium">
@@ -877,7 +918,7 @@ function handleVisibilityChange() {
         </p>
         <div class="flex flex-wrap items-center gap-2">
           <button class="secondary-button h-9 px-3 text-xs" type="button" @click="isComposerOpen = false">收起</button>
-          <button v-if="!isEditingPendingExpense" class="secondary-button h-9 px-3 text-xs" :disabled="saving" type="button" @click="saveDraft">保存待补</button>
+          <button class="secondary-button h-9 px-3 text-xs" :disabled="saving" type="button" @click="saveDraft">{{ isEditingPendingExpense ? "保存修改" : "保存待补" }}</button>
           <button class="primary-button h-9 px-3 text-xs" :disabled="saving || (isEditingPendingExpense ? !canSubmitExisting : !canSubmitNew)" type="button" @click="submitCurrent">
             <Loader2 v-if="saving" class="h-3.5 w-3.5 animate-spin" />
             <CheckCircle2 v-else class="h-3.5 w-3.5" /> 提交报销

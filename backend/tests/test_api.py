@@ -1374,6 +1374,51 @@ def test_deleting_draft_expense_releases_matched_invoice(tmp_path, monkeypatch):
     assert released_item["remaining_amount"] == 120
 
 
+def test_employee_can_fully_edit_own_pending_expense(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    dandi = auth_headers(client, "Dandi", "dandi123")
+    ouyang = auth_headers(client, "Ouyang", "ouyang123")
+    draft = client.post(
+        "/api/expenses",
+        headers=dandi,
+        json={
+            "project_name": "临时记录",
+            "actual_amount": 100,
+            "expense_month": "2026-09",
+            "category": "差旅交通",
+        },
+    ).json()
+    payload = {
+        "project_name": "客户会议资料",
+        "actual_amount": 268.5,
+        "category": "办公采购",
+        "is_substitute": True,
+        "substitute_reason": "后续补充替票",
+    }
+
+    forbidden = client.patch(f"/api/expenses/{draft['id']}", headers=ouyang, json=payload)
+    assert forbidden.status_code == 404
+
+    updated = client.patch(f"/api/expenses/{draft['id']}", headers=dandi, json=payload)
+    assert updated.status_code == 200
+    assert updated.json()["project_name"] == "客户会议资料"
+    assert updated.json()["actual_amount"] == 268.5
+    assert updated.json()["category"] == "办公采购"
+    assert updated.json()["is_substitute"] is True
+    assert updated.json()["substitute_reason"] == "后续补充替票"
+
+    persisted = next(item for item in client.get("/api/expenses", headers=dandi).json() if item["id"] == draft["id"])
+    assert persisted["project_name"] == "客户会议资料"
+    assert persisted["actual_amount"] == 268.5
+    assert persisted["category"] == "办公采购"
+
+    with client.app.state.db.connect() as connection:
+        connection.execute("UPDATE expenses SET status = 'matched' WHERE id = ?", (draft["id"],))
+    locked = client.patch(f"/api/expenses/{draft['id']}", headers=dandi, json=payload)
+    assert locked.status_code == 400
+    assert "不能继续修改" in locked.json()["detail"]
+
+
 def test_invoice_match_requires_reason_when_invoice_total_exceeds_expense(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     dandi = auth_headers(client, "Dandi", "dandi123")

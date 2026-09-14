@@ -25,7 +25,7 @@
 
 ### data flow
 
-1. 待处理报销：前端提交项目名称、金额、月份、类别，后端写入 `expenses.status = pending`。
+1. 待处理报销：前端提交项目名称、金额、月份、类别，后端写入 `expenses.status = pending`；员工可通过 `PATCH /api/expenses/{expense_id}` 完整更新自己的 `pending` 记录，后端拒绝跨用户或非 `pending` 修改。
 2. 交易记录附件：用户在我的报销页或报销整理工作栏上传付款截图、订单截图等图片，前端先调用 `/api/attachments/batch`，再通过 `/api/expenses/{expense_id}/attachments` 写入 `expense_attachments`。
    员工新建报销工作区使用该接口上传多张佐证，并通过 `/api/attachments/invoices/batch` 上传和 OCR 多份发票文件；发票 OCR 结果按 `attachment_id + invoice_item_index` 展开为独立发票条目，再通过 `/api/expense-allocations/batch` 一次绑定到同一待处理花费。
 3. 发票暂存：用户上传发票附件时，后端立即保存文件并 OCR，写入 `attachments.pool_status = staged`。

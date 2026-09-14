@@ -122,6 +122,15 @@ class ExpenseCreateRequest(BaseModel):
     substitute_reason: str = ""
 
 
+class PendingExpenseUpdateRequest(BaseModel):
+    """完整修改一笔待处理花费。"""
+    project_name: str = Field(min_length=1)
+    actual_amount: float = Field(gt=0)
+    category: str = Field(min_length=1)
+    is_substitute: bool = False
+    substitute_reason: str = ""
+
+
 class ExpenseSubmitRequest(BaseModel):
     """一次性创建花费 + 绑定发票 + 挂佐证材料 + 直接提交"""
     project_name: str = Field(min_length=1)

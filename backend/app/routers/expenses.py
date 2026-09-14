@@ -22,6 +22,7 @@ from app.schemas import (
     InvoicePoolItem,
     LedgerRow,
     PendingExpenseSubmitRequest,
+    PendingExpenseUpdateRequest,
 )
 from app.services.ledger import build_ledger_query, serialize_ledger_row
 from app.services.duplicate_attachments import find_duplicate_sources
@@ -877,6 +878,54 @@ def create_expense_draft(
 ) -> ExpenseResponse:
     """向后兼容：同 create_expense"""
     return create_expense(payload, request, user)
+
+
+@router.patch("/expenses/{expense_id}", response_model=ExpenseResponse)
+def update_pending_expense(
+    expense_id: int,
+    payload: PendingExpenseUpdateRequest,
+    request: Request,
+    user=Depends(get_current_user),
+) -> ExpenseResponse:
+    """完整修改当前员工的一笔待处理花费。"""
+    project_name = payload.project_name.strip()
+    category = payload.category.strip()
+    if not project_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请填写报销事项")
+    if not category:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请选择报销类别")
+
+    with request.app.state.db.connect() as connection:
+        expense = connection.execute(
+            "SELECT * FROM expenses WHERE id = ? AND user_id = ?",
+            (expense_id, user["id"]),
+        ).fetchone()
+        if expense is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="花费记录不存在")
+        _ensure_expense_is_pending(expense)
+
+        connection.execute(
+            """
+            UPDATE expenses
+            SET project_name = ?, actual_amount = ?, category = ?,
+                is_substitute = ?, substitute_reason = ?
+            WHERE id = ?
+            """,
+            (
+                project_name,
+                payload.actual_amount,
+                category,
+                int(payload.is_substitute),
+                payload.substitute_reason.strip(),
+                expense_id,
+            ),
+        )
+        if _allocated_amount_for_expense(connection, expense_id) > 0:
+            _sync_expense_after_allocation(connection, expense_id)
+            if payload.is_substitute:
+                connection.execute("UPDATE expenses SET is_substitute = 1 WHERE id = ?", (expense_id,))
+        updated, linked_attachments, allocations = _load_expense(connection, expense_id)
+    return serialize_expense(updated, linked_attachments, allocations, connection)
 
 
 @router.post("/expenses/submit", response_model=ExpenseResponse)
