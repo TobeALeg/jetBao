@@ -13,6 +13,7 @@ defineProps<{
 defineEmits<{
   "change-view": [view: ViewKey];
   logout: [];
+  "open-guide": [];
 }>();
 </script>
 
@@ -27,7 +28,7 @@ defineEmits<{
         @change-view="$emit('change-view', $event)"
       />
       <div class="flex min-w-0 flex-1 flex-col">
-        <Topbar :user="user" @logout="$emit('logout')" />
+        <Topbar :user="user" @logout="$emit('logout')" @open-guide="$emit('open-guide')" />
         <main class="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">
           <slot />
         </main>

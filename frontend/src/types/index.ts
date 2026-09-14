@@ -1,6 +1,6 @@
 export type Role = "employee" | "admin";
 
-export type ViewKey = "monthly" | "history" | "guide" | "settings" | "admin-users";
+export type ViewKey = "monthly" | "history" | "admin-users";
 
 export type WorkspaceMode = "personal" | "admin";
 

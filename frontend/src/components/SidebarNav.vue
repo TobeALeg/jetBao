@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, BookOpen, Home, ReceiptText, Settings, ShieldCheck } from "lucide-vue-next";
+import { ArrowLeft, Home, ReceiptText, ShieldCheck } from "lucide-vue-next";
 import { computed } from "vue";
 import type { Component } from "vue";
 import { HOME_URL } from "../config/navigation";
@@ -27,8 +27,6 @@ const navItems: NavItem[] = [
   { key: "monthly", label: "个人报销", icon: Home },
   { key: "history", label: "报销记录", icon: ReceiptText },
   { key: "admin-users", label: "人员管理", icon: ShieldCheck, adminOnly: true },
-  { key: "guide", label: "使用指南", icon: BookOpen },
-  { key: "settings", label: "个人设置", icon: Settings },
 ];
 
 const visibleNavItems = computed(() =>

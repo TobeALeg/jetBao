@@ -47,6 +47,11 @@ export default {
         "control-sm": "32px",
         "control-lg": "36px"
       },
+      width: {
+        "control-xs": "28px",
+        "control-sm": "32px",
+        "control-lg": "36px"
+      },
       transitionDuration: {
         1: "120ms",
         2: "200ms",
