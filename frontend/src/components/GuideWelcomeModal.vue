@@ -24,14 +24,14 @@ const isAdmin = computed(() => props.user.role === "admin");
       @click.self="emit('dismiss')"
     >
       <div
-        class="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        class="animate-scale-in relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-panel bg-white shadow-overlay"
         role="dialog"
         aria-modal="true"
         aria-labelledby="guide-welcome-title"
       >
-        <div class="border-b border-teal-100 bg-gradient-to-r from-teal-50 to-white px-6 py-5">
+        <div class="border-b border-accent-line bg-accent-soft px-6 py-5">
           <button
-            class="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition hover:bg-white hover:text-slate-800"
+            class="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-control text-slate-500 transition duration-1 ease-standard hover:bg-white hover:text-slate-800"
             type="button"
             aria-label="关闭"
             @click="emit('dismiss')"
@@ -39,21 +39,21 @@ const isAdmin = computed(() => props.user.role === "admin");
             <X class="h-4 w-4" />
           </button>
           <div class="flex items-start gap-3 pr-10">
-            <div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-teal-700 text-white">
+            <div class="grid h-11 w-11 shrink-0 place-items-center rounded-control bg-accent text-white">
               <BookOpen class="h-5 w-5" />
             </div>
             <div>
-              <p class="text-xs font-semibold uppercase tracking-wide text-teal-700">欢迎，{{ user.employee_name }}</p>
-              <h2 id="guide-welcome-title" class="mt-1 text-xl font-semibold text-ink">JetBao 使用指南</h2>
+              <p class="text-xs font-semibold uppercase tracking-wide text-accent-ink">欢迎，{{ user.employee_name }}</p>
+              <h2 id="guide-welcome-title" class="mt-1 text-xl font-semibold text-slate-900">JetBao 使用指南</h2>
               <p class="mt-1 text-sm text-slate-600">首次登录请先了解以下要点，之后可在侧栏「使用指南」随时查看。</p>
             </div>
           </div>
         </div>
 
         <div class="flex-1 space-y-4 overflow-y-auto px-6 py-5 text-sm text-slate-700">
-          <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <section class="rounded-control border border-hairline bg-surface-soft p-4">
             <div class="mb-2 flex items-center gap-2 font-semibold text-slate-900">
-              <Home class="h-4 w-4 text-teal-700" />
+              <Home class="h-4 w-4 text-accent-ink" />
               个人报销
             </div>
             <ol class="list-decimal space-y-1.5 pl-5">
@@ -63,9 +63,9 @@ const isAdmin = computed(() => props.user.role === "admin");
             </ol>
           </section>
 
-          <section class="rounded-xl border border-slate-200 p-4">
+          <section class="rounded-control border border-hairline p-4">
             <div class="mb-2 flex items-center gap-2 font-semibold text-slate-900">
-              <Upload class="h-4 w-4 text-teal-700" />
+              <Upload class="h-4 w-4 text-accent-ink" />
               替票与金额
             </div>
             <ul class="space-y-1.5">
@@ -74,8 +74,8 @@ const isAdmin = computed(() => props.user.role === "admin");
             </ul>
           </section>
 
-          <section v-if="isAdmin" class="rounded-xl border border-teal-100 bg-teal-50/50 p-4">
-            <div class="mb-2 flex items-center gap-2 font-semibold text-teal-900">
+          <section v-if="isAdmin" class="rounded-control border border-accent-line bg-accent-soft p-4">
+            <div class="mb-2 flex items-center gap-2 font-semibold text-accent-ink">
               <ReceiptText class="h-4 w-4" />
               管理员：全员报销记录
             </div>
@@ -86,30 +86,30 @@ const isAdmin = computed(() => props.user.role === "admin");
             </ul>
           </section>
 
-          <section v-if="isAdmin" class="rounded-xl border border-slate-200 p-4">
+          <section v-if="isAdmin" class="rounded-control border border-hairline p-4">
             <div class="mb-2 flex items-center gap-2 font-semibold text-slate-900">
-              <ShieldCheck class="h-4 w-4 text-teal-700" />
+              <ShieldCheck class="h-4 w-4 text-accent-ink" />
               管理员：人员管理
             </div>
             <p>在「人员管理」页创建员工 / 管理员账号，设置公司主体与角色。</p>
           </section>
 
-          <section class="rounded-xl border border-slate-200 p-4">
+          <section class="rounded-control border border-hairline p-4">
             <div class="mb-2 flex items-center gap-2 font-semibold text-slate-900">
-              <CheckCircle2 class="h-4 w-4 text-teal-700" />
+              <CheckCircle2 class="h-4 w-4 text-accent-ink" />
               状态速览
             </div>
             <div class="flex flex-wrap gap-2">
-              <span class="status-pill bg-amber-100 text-amber-800">待补材料</span>
-              <span class="status-pill bg-teal-50 text-teal-800">待提交</span>
-              <span class="status-pill bg-rose-50 text-rose-700">已打回</span>
-              <span class="status-pill bg-slate-100 text-slate-600">已提交</span>
-              <span class="status-pill bg-slate-100 text-slate-500">已完成</span>
+              <span class="status-pill state-warn">待补材料</span>
+              <span class="status-pill state-action">待提交</span>
+              <span class="status-pill state-danger">已打回</span>
+              <span class="status-pill state-neutral">已提交</span>
+              <span class="status-pill state-done">已完成</span>
             </div>
           </section>
         </div>
 
-        <div class="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-6 py-4">
+        <div class="flex flex-wrap items-center justify-end gap-2 border-t border-hairline bg-white px-6 py-4">
           <button class="secondary-button h-10" type="button" @click="emit('view-full-guide')">查看完整指南</button>
           <button class="primary-button h-10" type="button" @click="emit('dismiss')">我知道了，开始使用</button>
         </div>

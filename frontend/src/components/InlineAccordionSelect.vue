@@ -121,7 +121,7 @@ onUnmounted(() => {
               @click="choose(option.value)"
             >
               <span class="whitespace-nowrap">{{ option.label }}</span>
-              <Check v-if="option.value === modelValue" class="h-3.5 w-3.5 shrink-0 text-teal-700" />
+              <Check v-if="option.value === modelValue" class="h-3.5 w-3.5 shrink-0 text-accent-ink" />
             </button>
           </div>
         </div>
@@ -163,8 +163,8 @@ onUnmounted(() => {
 }
 
 .t-acc.is-modified .t-acc-head {
-  background: #ecfdf5;
-  color: #115e59;
+  background: var(--accent-soft, #eef5f4);
+  color: var(--accent-ink, #2f6f68);
 }
 
 /* Transitions.dev accordion: animate intrinsic height without measuring it. */

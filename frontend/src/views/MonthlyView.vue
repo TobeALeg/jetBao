@@ -72,6 +72,7 @@ const materialMissingTotal = computed(() => currentMonthExpenses.value
   .filter((record) => record.status === "pending" && !record.reject_reason && (!record.allocation_count || !record.attachments.length))
   .reduce((sum, record) => sum + Number(record.actual_amount), 0));
 const rejectedCount = computed(() => currentMonthExpenses.value.filter((record) => record.status === "pending" && Boolean(record.reject_reason)).length);
+const readyCount = computed(() => currentMonthExpenses.value.filter((record) => recordState(record) === "ready").length);
 function activeRecordPriority(expense: Expense): number {
   if (expense.reject_reason) return 0;
   if (recordState(expense) === "ready") return 1;
@@ -203,27 +204,37 @@ function recordStateLabel(expense: Expense): string {
 
 function recordStateClass(expense: Expense): string {
   const state = recordState(expense);
-  if (state === "missing_material") return "bg-amber-100 text-amber-800";
-  if (state === "ready") return "bg-teal-50 text-teal-800";
-  if (state === "rejected") return "bg-rose-50 text-rose-700";
-  if (state === "approved") return "bg-slate-100 text-slate-500";
-  return "bg-slate-100 text-slate-600";
+  if (state === "missing_material") return "state-warn";
+  if (state === "ready") return "state-action";
+  if (state === "rejected") return "state-danger";
+  if (state === "approved") return "state-done";
+  return "state-neutral";
 }
 
 function tableRowClass(sectionKey: TableSection["key"], record: Expense): string {
   if (sectionKey === "approved" || recordState(record) === "approved") {
-    return "bg-slate-50/80 text-slate-500";
+    return "bg-state-done-soft text-slate-500";
   }
   if (recordState(record) === "rejected") {
-    return "bg-rose-50/30 hover:bg-rose-50/50";
+    return "bg-state-danger-soft/40 hover:bg-state-danger-soft";
   }
-  return "hover:bg-slate-50";
+  return "hover:bg-surface-soft";
 }
 
 function tableSectionClass(sectionKey: TableSection["key"]): string {
-  if (sectionKey === "approved") return "border-t-4 border-slate-300";
-  if (sectionKey === "submitted") return "border-t-4 border-slate-200";
+  if (sectionKey === "approved") return "border-t-2 border-state-done-line";
+  if (sectionKey === "submitted") return "border-t-2 border-hairline";
   return "";
+}
+
+// 左侧 3px 色条：不依赖颜色的第二个状态信号（色盲 / 强光下仍可读）
+function recordStateBarClass(expense: Expense): string {
+  const state = recordState(expense);
+  if (state === "ready") return "border-l-accent";
+  if (state === "missing_material") return "border-l-amber-500";
+  if (state === "rejected") return "border-l-rose-600";
+  if (state === "approved") return "border-l-slate-300";
+  return "border-l-slate-200";
 }
 
 function resetComposer() {
@@ -702,75 +713,88 @@ function handleVisibilityChange() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-6xl space-y-7">
-    <header class="space-y-5 border-b border-slate-200 pb-5">
+  <div class="page">
+    <header class="space-y-5 border-b border-hairline pb-5">
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div>
-          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">JetBao / {{ month }}</p>
-          <h1 class="mt-2 text-3xl font-semibold tracking-tight text-ink">个人报销</h1>
+          <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">JetBao / {{ month }}</p>
+          <h1 class="mt-1 page-title">个人报销</h1>
         </div>
       </div>
-      <div class="grid gap-3 sm:grid-cols-3">
-        <div class="rounded-3xl border border-teal-100 bg-teal-50 p-5 shadow-sm">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">已提交</p>
-          <div class="mt-4">
-            <p class="text-3xl font-semibold text-ink">{{ formatCurrency(submittedTotal) }}</p>
-            <p class="mt-2 text-sm text-slate-600">{{ submittedRecords.length }} 笔待审核</p>
+
+      <!-- 账本摘要：三块严格三等分，填满横向空间；打回/已完成降为下方次要信息行 -->
+      <div class="space-y-2">
+        <div class="grid overflow-hidden rounded-panel border border-hairline bg-white shadow-raised sm:grid-cols-3 sm:divide-x sm:divide-hairline">
+          <div class="flex flex-col gap-1 px-5 py-4">
+            <span class="text-[13px] text-slate-500">本月已提交</span>
+            <span class="num text-xl font-semibold text-slate-900">{{ formatCurrency(submittedTotal) }}</span>
+          </div>
+          <div class="flex flex-col gap-1 border-t border-hairline px-5 py-4 sm:border-t-0">
+            <span class="flex items-center gap-1.5 text-[13px] text-slate-500">
+              <span class="h-[7px] w-[7px] shrink-0 animate-dot-pulse rounded-full bg-accent" aria-hidden="true"></span>
+              待你处理
+            </span>
+            <span class="num text-xl font-semibold text-slate-900">{{ readyCount + rejectedCount }} 笔</span>
+          </div>
+          <div class="flex flex-col gap-1 border-t border-hairline px-5 py-4 sm:border-t-0">
+            <span class="flex items-center gap-1.5 text-[13px] text-slate-500">
+              <span class="h-[7px] w-[7px] shrink-0 rounded-full bg-amber-500" aria-hidden="true"></span>
+              待补
+            </span>
+            <span class="flex items-baseline gap-1.5">
+              <span class="num text-xl font-semibold text-slate-900">{{ formatCurrency(materialMissingTotal) }}</span>
+              <span class="text-xs text-slate-500">{{ materialMissingCount }} 笔</span>
+            </span>
           </div>
         </div>
-        <div class="rounded-3xl border border-rose-100 bg-rose-50 p-5 shadow-sm">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">已打回</p>
-          <div class="mt-4">
-            <p class="text-3xl font-semibold text-rose-900">{{ rejectedCount }}</p>
-            <p class="mt-2 text-sm text-slate-600">需修改后重新提交</p>
-          </div>
-        </div>
-        <div class="rounded-3xl border border-orange-100 bg-orange-50 p-5 shadow-sm">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">待补材料</p>
-          <div class="mt-4">
-            <p class="text-3xl font-semibold text-orange-900">{{ formatCurrency(materialMissingTotal) }}</p>
-            <p class="mt-2 text-sm text-slate-600">{{ materialMissingCount }} 笔</p>
-          </div>
-        </div>
-      </div>
-      <div v-if="approvedRecords.length" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-        已完成 {{ approvedRecords.length }} 笔，合计 {{ formatCurrency(approvedTotal) }}（见下方灰色记录）
+
+        <p v-if="rejectedCount || approvedRecords.length" class="flex flex-wrap items-center gap-x-5 gap-y-1 px-1 text-xs text-slate-500">
+          <span v-if="rejectedCount" class="flex items-center gap-1.5">
+            <span class="h-[7px] w-[7px] shrink-0 rounded-full bg-rose-600" aria-hidden="true"></span>
+            打回 <span class="num font-medium text-slate-700">{{ rejectedCount }} 笔</span>
+          </span>
+          <span v-if="approvedRecords.length" class="flex items-center gap-1.5">
+            <span class="h-[7px] w-[7px] shrink-0 rounded-full bg-slate-300" aria-hidden="true"></span>
+            已完成 <span class="num font-medium text-slate-700">{{ approvedRecords.length }} 笔 · {{ formatCurrency(approvedTotal) }}</span>
+          </span>
+        </p>
       </div>
     </header>
 
-    <p v-if="error" class="border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{{ error }}</p>
-    <p v-if="success" class="border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-800">{{ success }}</p>
+    <p v-if="error" class="rounded-control border border-state-danger-line bg-state-danger-soft px-4 py-3 text-sm text-state-danger-ink">{{ error }}</p>
+    <p v-if="success" class="rounded-control border border-state-action-line bg-state-action-soft px-4 py-3 text-sm text-state-action-ink">{{ success }}</p>
 
-    <div v-if="!isComposerOpen" class="flex justify-end pt-4">
-      <button class="primary-button h-10 px-4" type="button" @click="startNewExpense()">
+    <div v-if="!isComposerOpen" class="flex justify-end pt-1">
+      <button class="primary-button is-anchor" type="button" @click="startNewExpense()">
         <Plus class="h-4 w-4" />
         新建报销
       </button>
     </div>
 
-    <section v-if="isComposerOpen" class="border-y border-slate-200 bg-white">
-      <div v-if="isEditingPendingExpense && targetExpense?.reject_reason" class="border-b border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-800">
+    <section v-if="isComposerOpen" class="tool-panel overflow-hidden">
+      <div v-if="isEditingPendingExpense && targetExpense?.reject_reason" class="border-b border-state-danger-line bg-state-danger-soft px-5 py-3 text-sm text-state-danger-ink">
         <span class="font-medium">管理员打回：</span>{{ targetExpense.reject_reason }}
       </div>
       <div class="p-5">
+        <!-- 录入行：三个输入读成一句话，所以用下划线而非填充框 -->
         <div class="grid gap-x-7 gap-y-5 lg:grid-cols-[minmax(0,1fr)_150px_190px_150px]">
-          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">报销事项</span><input v-model="expenseForm.project_name" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700" placeholder="填写报销事项" /></label>
-          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">金额</span><input v-model="expenseForm.actual_amount" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700" inputmode="decimal" placeholder="0.00" /></label>
-          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">类别</span><select v-model="expenseForm.category" class="mt-1 h-9 w-full border-0 border-b border-slate-300 bg-transparent p-0 text-[15px] font-medium text-ink outline-none transition hover:border-slate-400 hover:bg-slate-50 focus:border-teal-700"><option v-for="category in EXPENSE_CATEGORIES" :key="category">{{ category }}</option></select></label>
+          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-500">报销事项</span><input v-model="expenseForm.project_name" class="field-inline mt-1" placeholder="填写报销事项" /></label>
+          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-500">金额</span><input v-model="expenseForm.actual_amount" class="field-inline num mt-1" inputmode="decimal" placeholder="0.00" /></label>
+          <label class="block"><span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-500">类别</span><select v-model="expenseForm.category" class="field-inline mt-1"><option v-for="category in EXPENSE_CATEGORIES" :key="category">{{ category }}</option></select></label>
           <div>
-            <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-400">替票</span>
-            <div class="mt-1 flex h-9 items-center gap-4 border-b border-slate-300 text-[14px] font-medium">
+            <span class="block text-[11px] font-semibold tracking-[0.08em] text-slate-500">替票</span>
+            <div class="mt-[3px] flex h-[34px] items-center gap-4 border-b border-line-strong text-[15px] font-medium">
               <button
-                class="h-full border-b-2 px-1 transition"
-                :class="!isNewSubstitute ? 'border-slate-800 text-ink' : 'border-transparent text-slate-400 hover:text-slate-700'"
+                class="h-full border-b-2 px-1 transition duration-1 ease-standard"
+                :class="!isNewSubstitute ? 'border-slate-800 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-700'"
                 type="button"
                 @click="setSubstitute(false)"
               >
                 否
               </button>
               <button
-                class="h-full border-b-2 px-1 transition"
-                :class="isNewSubstitute ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-400 hover:text-slate-700'"
+                class="h-full border-b-2 px-1 transition duration-1 ease-standard"
+                :class="isNewSubstitute ? 'border-state-warn-ink text-state-warn-ink' : 'border-transparent text-slate-400 hover:text-slate-700'"
                 type="button"
                 @click="setSubstitute(true)"
               >
@@ -780,17 +804,17 @@ function handleVisibilityChange() {
           </div>
         </div>
 
-        <div v-if="showSubstituteReason" class="mt-5 rounded-lg border border-orange-200 bg-orange-50/70 px-4 py-3">
+        <div v-if="showSubstituteReason" class="mt-5 rounded-control border border-state-warn-line bg-state-warn-soft/70 px-4 py-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <label class="text-sm font-medium text-orange-900" for="substitute-reason-input">替票说明</label>
-            <span v-if="amountsMismatch && !isNewSubstitute" class="text-xs text-orange-700">金额不一致，请先选择替票「是」</span>
-            <span v-else-if="amountsMismatch" class="text-xs text-orange-700">票面与报销金额不一致，须填写说明</span>
+            <label class="text-sm font-medium text-state-warn-ink" for="substitute-reason-input">替票说明</label>
+            <span v-if="amountsMismatch && !isNewSubstitute" class="text-xs text-state-warn-ink">金额不一致，请先选择替票「是」</span>
+            <span v-else-if="amountsMismatch" class="text-xs text-state-warn-ink">票面与报销金额不一致，须填写说明</span>
           </div>
           <textarea
             id="substitute-reason-input"
             ref="substituteReasonInput"
             v-model="substituteReason"
-            class="mt-2 min-h-[84px] w-full rounded-md border border-orange-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-200"
+            class="mt-2 min-h-[84px] w-full rounded-control border border-state-warn-line bg-white px-3 py-2 text-sm text-slate-800 outline-none transition duration-1 ease-standard focus:border-state-warn-ink focus:ring-[3px] focus:ring-state-warn-line"
             :disabled="!isNewSubstitute"
             :placeholder="isNewSubstitute ? '例如：发票含其他项目，本次仅报销其中一部分' : '选择替票「是」后在此填写说明'"
           />
@@ -799,12 +823,12 @@ function handleVisibilityChange() {
 
       <input ref="evidenceInput" class="hidden" type="file" accept="image/*,.pdf" multiple @change="handleEvidenceInput" />
       <input ref="invoiceInput" class="hidden" type="file" accept="image/*,.pdf" multiple @change="handleInvoiceInput" />
-      <div class="grid gap-px border-y border-slate-200 bg-slate-200 lg:grid-cols-2">
+      <div class="grid gap-px border-y border-hairline bg-hairline lg:grid-cols-2">
         <div class="space-y-3 bg-white p-5">
           <div class="flex items-center justify-between"><span class="field-label">上传佐证材料</span><span class="text-xs text-slate-500">可一次上传多张</span></div>
           <div
-            class="upload-zone min-h-28 w-full border border-dashed transition"
-            :class="evidenceDragging ? 'border-teal-600 bg-teal-50' : 'border-slate-300 bg-slate-50'"
+            class="upload-zone min-h-28 w-full rounded-control border border-dashed"
+            :class="evidenceDragging ? 'border-accent bg-accent-soft' : 'border-line-strong bg-surface-soft'"
             @dragenter.prevent="evidenceDragging = true"
             @dragover.prevent="evidenceDragging = true"
             @dragleave.prevent="evidenceDragging = false"
@@ -821,7 +845,7 @@ function handleVisibilityChange() {
                 @remove="removeEvidenceAttachment"
               />
               <button
-                class="flex aspect-square flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-teal-600 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                class="flex aspect-square flex-col items-center justify-center rounded-control border border-dashed border-line-strong bg-white text-slate-500 transition duration-2 ease-standard hover:border-accent hover:bg-accent-soft hover:text-accent-ink disabled:cursor-not-allowed disabled:opacity-60"
                 :disabled="saving"
                 type="button"
                 @click="evidenceInput?.click()"
@@ -833,13 +857,13 @@ function handleVisibilityChange() {
             </div>
             <button
               v-else
-              class="flex min-h-28 w-full flex-col items-center justify-center px-4 text-center transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-60"
+              class="flex min-h-28 w-full flex-col items-center justify-center px-4 text-center transition duration-2 ease-standard hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-60"
               :disabled="saving"
               type="button"
               @click="evidenceInput?.click()"
             >
-              <Loader2 v-if="saving" class="h-5 w-5 animate-spin text-teal-700" />
-              <ImagePlus v-else class="h-5 w-5 text-teal-700" />
+              <Loader2 v-if="saving" class="h-5 w-5 animate-spin text-accent-ink" />
+              <ImagePlus v-else class="h-5 w-5 text-accent-ink" />
               <span class="mt-2 text-sm font-medium text-slate-800">{{ evidenceDragging ? "松开上传" : "点击或拖拽上传佐证材料（可多选）" }}</span>
             </button>
           </div>
@@ -848,8 +872,8 @@ function handleVisibilityChange() {
         <div class="space-y-3 bg-white p-5">
           <div class="flex items-center justify-between"><span class="field-label">上传发票</span><span class="text-xs text-slate-500">可多选，OCR 自动识别多张</span></div>
           <div
-            class="upload-zone min-h-28 w-full border border-dashed transition"
-            :class="invoiceDragging ? 'border-teal-600 bg-teal-50' : 'border-slate-300 bg-slate-50'"
+            class="upload-zone min-h-28 w-full rounded-control border border-dashed"
+            :class="invoiceDragging ? 'border-accent bg-accent-soft' : 'border-line-strong bg-surface-soft'"
             @dragenter.prevent="invoiceDragging = true"
             @dragover.prevent="invoiceDragging = true"
             @dragleave.prevent="invoiceDragging = false"
@@ -866,7 +890,7 @@ function handleVisibilityChange() {
                 @remove="removeInvoiceAttachment"
               />
               <button
-                class="flex aspect-square flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-teal-600 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                class="flex aspect-square flex-col items-center justify-center rounded-control border border-dashed border-line-strong bg-white text-slate-500 transition duration-2 ease-standard hover:border-accent hover:bg-accent-soft hover:text-accent-ink disabled:cursor-not-allowed disabled:opacity-60"
                 :disabled="invoiceUploadLocked"
                 type="button"
                 @click="invoiceInput?.click()"
@@ -878,28 +902,28 @@ function handleVisibilityChange() {
             </div>
             <button
               v-else
-              class="flex min-h-28 w-full flex-col items-center justify-center px-4 text-center transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-60"
+              class="flex min-h-28 w-full flex-col items-center justify-center px-4 text-center transition duration-2 ease-standard hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-60"
               :disabled="invoiceUploadLocked"
               type="button"
               @click="invoiceInput?.click()"
             >
-              <Loader2 v-if="saving" class="h-5 w-5 animate-spin text-teal-700" />
-              <FilePlus2 v-else class="h-5 w-5 text-teal-700" />
+              <Loader2 v-if="saving" class="h-5 w-5 animate-spin text-accent-ink" />
+              <FilePlus2 v-else class="h-5 w-5 text-accent-ink" />
               <span class="mt-2 text-sm font-medium text-slate-800">{{ invoiceDragging ? "松开上传" : "点击或拖拽上传发票（可多选）" }}</span>
             </button>
           </div>
           <div v-if="displayInvoiceItems.length" class="space-y-2">
-            <div class="flex items-center justify-between border-l-2 border-teal-600 bg-teal-50 px-3 py-2 text-xs">
-              <span class="text-teal-800">已识别 {{ displayInvoiceItems.length }} 张发票</span>
-              <strong class="text-teal-950">合计 {{ formatCurrency(linkedInvoiceAmount) }}</strong>
+            <div class="flex items-center justify-between rounded-control border-l-2 border-accent bg-accent-soft px-3 py-2 text-xs">
+              <span class="text-accent-ink">已识别 {{ displayInvoiceItems.length }} 张发票</span>
+              <strong class="num text-accent-ink">合计 {{ formatCurrency(linkedInvoiceAmount) }}</strong>
             </div>
             <div
               v-for="invoice in displayInvoiceItems"
               :key="`${invoice.attachment_id}-${invoice.invoice_item_index}`"
-              class="grid grid-cols-2 gap-x-4 gap-y-1.5 bg-slate-50 px-3 py-2 text-xs text-slate-500"
+              class="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-control bg-surface-soft px-3 py-2 text-xs text-slate-500"
             >
               <span>发票号码</span><strong class="truncate text-right text-slate-900">{{ invoiceText(invoice.item, ["invoice_number", "number"]) }}</strong>
-              <span>金额</span><strong class="text-right text-slate-900">{{ formatCurrency(Number(invoice.item.amount)) }}</strong>
+              <span>金额</span><strong class="num text-right text-slate-900">{{ formatCurrency(Number(invoice.item.amount)) }}</strong>
               <span>销售方</span><strong class="truncate text-right text-slate-900">{{ invoiceText(invoice.item, ["seller", "seller_name"]) }}</strong>
             </div>
           </div>
@@ -908,7 +932,7 @@ function handleVisibilityChange() {
 
       <AttachmentPreviewModal :attachment="previewAttachment" :open="Boolean(previewAttachment)" @close="closeAttachmentPreview" />
 
-      <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-5 py-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-t border-hairline px-5 py-4">
         <p class="text-xs text-slate-500">
           {{
             targetExpense?.reject_reason
@@ -919,9 +943,10 @@ function handleVisibilityChange() {
           }}
         </p>
         <div class="flex flex-wrap items-center gap-2">
-          <button class="secondary-button h-9 px-3 text-xs" type="button" @click="isComposerOpen = false">收起</button>
-          <button class="secondary-button h-9 px-3 text-xs" :disabled="saving" type="button" @click="saveDraft">{{ isEditingPendingExpense ? "保存修改" : "保存待补" }}</button>
-          <button class="primary-button h-9 px-3 text-xs" :disabled="saving || (isEditingPendingExpense ? !canSubmitExisting : !canSubmitNew)" type="button" @click="submitCurrent">
+          <button class="secondary-button btn-xs" type="button" @click="isComposerOpen = false">收起</button>
+          <button class="secondary-button btn-xs" :disabled="saving" type="button" @click="saveDraft">{{ isEditingPendingExpense ? "保存修改" : "保存待补" }}</button>
+          <!-- 本屏唯一的实心主操作 -->
+          <button class="primary-button is-anchor btn-xs" :disabled="saving || (isEditingPendingExpense ? !canSubmitExisting : !canSubmitNew)" type="button" @click="submitCurrent">
             <Loader2 v-if="saving" class="h-3.5 w-3.5 animate-spin" />
             <CheckCircle2 v-else class="h-3.5 w-3.5" /> 提交报销
           </button>
@@ -931,11 +956,11 @@ function handleVisibilityChange() {
 
     <section>
       <div class="mb-3 flex items-center justify-between"><h2 class="section-title">本月记录</h2><span class="text-xs text-slate-500">{{ currentMonthExpenses.length }} 笔</span></div>
-      <div v-if="loading" class="border-y border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-500">加载中...</div>
-      <div v-else-if="!currentMonthExpenses.length" class="border-y border-slate-200 bg-white px-4 py-12 text-center text-sm text-slate-500">本月还没有报销记录，先新建一笔。</div>
-      <div v-else class="overflow-x-auto border-y border-slate-200 bg-white">
+      <div v-if="loading" class="tool-panel px-4 py-10 text-center text-sm text-slate-500">加载中...</div>
+      <div v-else-if="!currentMonthExpenses.length" class="tool-panel px-4 py-12 text-center text-sm text-slate-500">本月还没有报销记录，先新建一笔。</div>
+      <div v-else class="tool-panel overflow-x-auto">
         <table class="min-w-[900px] w-full text-left text-[13px]">
-          <thead class="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+          <thead class="border-b border-hairline bg-surface-soft text-xs font-medium text-slate-500">
             <tr>
               <th class="px-4 py-2.5">状态</th>
               <th class="px-4 py-2.5">报销事项</th>
@@ -950,29 +975,29 @@ function handleVisibilityChange() {
           <tbody
             v-for="section in tableSections"
             :key="section.key"
-            class="divide-y divide-slate-100"
+            class="divide-y divide-hairline"
             :class="tableSectionClass(section.key)"
           >
-            <tr v-for="record in section.records" :key="record.id" class="h-14 transition" :class="tableRowClass(section.key, record)">
-              <td class="px-4 py-2">
+            <tr v-for="record in section.records" :key="record.id" class="h-14 transition duration-2 ease-standard" :class="tableRowClass(section.key, record)">
+              <td class="border-l-[3px] px-4 py-2" :class="recordStateBarClass(record)">
                 <span class="status-pill" :class="recordStateClass(record)">{{ recordStateLabel(record) }}</span>
-                <div v-if="record.reject_reason" class="mt-1 max-w-40 truncate text-[11px] text-rose-600" :title="record.reject_reason">
+                <div v-if="record.reject_reason" class="mt-1 max-w-40 truncate text-[11px] text-state-danger-ink" :title="record.reject_reason">
                   {{ record.reject_reason }}
                 </div>
               </td>
-              <td class="px-4 py-2 font-medium" :class="section.key === 'approved' ? 'text-slate-500' : 'text-ink'">{{ record.project_name || record.category }}</td>
+              <td class="px-4 py-2 font-medium" :class="section.key === 'approved' ? 'text-slate-500' : 'text-slate-900'">{{ record.project_name || record.category }}</td>
               <td class="px-4 py-2 text-slate-600">{{ record.category }}</td>
-              <td class="px-4 py-2 text-right font-medium" :class="section.key === 'approved' ? 'text-slate-500' : 'text-ink'">{{ formatCurrency(record.actual_amount) }}</td>
-              <td class="px-4 py-2"><span :class="record.is_substitute ? 'text-orange-700' : 'text-slate-500'">{{ record.is_substitute ? "是" : "否" }}</span></td>
-              <td class="px-4 py-2"><span :class="record.attachments.length ? 'text-slate-700' : 'text-amber-700'">{{ record.attachments.length ? `${record.attachments.length} 份` : "未上传" }}</span></td>
-              <td class="px-4 py-2"><span :class="record.allocation_count ? 'text-teal-700' : 'text-amber-700'">{{ record.allocation_count ? "已上传" : "未上传" }}</span></td>
+              <td class="num px-4 py-2 text-right font-medium" :class="section.key === 'approved' ? 'text-slate-500' : 'text-slate-900'">{{ formatCurrency(record.actual_amount) }}</td>
+              <td class="px-4 py-2"><span :class="record.is_substitute ? 'text-slate-900' : 'text-slate-500'">{{ record.is_substitute ? "是" : "否" }}</span></td>
+              <td class="px-4 py-2"><span :class="record.attachments.length ? 'text-slate-700' : 'text-state-warn-ink'">{{ record.attachments.length ? `${record.attachments.length} 份` : "未上传" }}</span></td>
+              <td class="px-4 py-2"><span :class="record.allocation_count ? 'text-slate-700' : 'text-state-warn-ink'">{{ record.allocation_count ? "已上传" : "未上传" }}</span></td>
               <td class="px-4 py-2 text-right">
                 <div class="flex items-center justify-end gap-1.5">
                   <template v-if="recordState(record) === 'rejected'">
-                    <button class="secondary-button h-8 px-2.5 text-xs" type="button" @click="openExistingExpense(record)">修改</button>
+                    <button class="secondary-button btn-xs" type="button" @click="openExistingExpense(record)">修改</button>
                     <button
                       v-if="record.allocation_count && record.remaining_amount <= 0"
-                      class="primary-button h-8 px-2.5 text-xs"
+                      class="primary-button btn-xs"
                       :disabled="saving"
                       type="button"
                       @click="submitRecord(record)"
@@ -981,11 +1006,11 @@ function handleVisibilityChange() {
                     </button>
                   </template>
                   <template v-else-if="recordState(record) === 'missing_material'">
-                    <button class="secondary-button h-8 px-2.5 text-xs" type="button" @click="openExistingExpense(record)">补材料</button>
-                    <button class="secondary-button h-8 px-2.5 text-xs text-rose-700 hover:bg-rose-50" type="button" :disabled="saving" @click="deleteRecord(record)">删除</button>
+                    <button class="secondary-button btn-xs" type="button" @click="openExistingExpense(record)">补材料</button>
+                    <button class="secondary-button btn-xs text-rose-700" type="button" :disabled="saving" @click="deleteRecord(record)">删除</button>
                   </template>
-                  <button v-else-if="recordState(record) === 'ready'" class="primary-button h-8 px-2.5 text-xs" :disabled="saving" type="button" @click="submitRecord(record)">提交报销</button>
-                  <button v-else-if="recordState(record) === 'submitted'" class="secondary-button h-8 px-2.5 text-xs" :disabled="saving" type="button" @click="withdraw(record)">撤回</button>
+                  <button v-else-if="recordState(record) === 'ready'" class="primary-button btn-xs" :disabled="saving" type="button" @click="submitRecord(record)">提交报销</button>
+                  <button v-else-if="recordState(record) === 'submitted'" class="secondary-button btn-xs" :disabled="saving" type="button" @click="withdraw(record)">撤回</button>
                   <span v-else class="text-xs text-slate-400">—</span>
                 </div>
               </td>

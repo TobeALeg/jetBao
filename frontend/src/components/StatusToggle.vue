@@ -48,13 +48,13 @@ function toggle(currentValue: boolean) {
 
 .status-toggle:focus-visible {
   border-radius: 0.375rem;
-  outline: 2px solid rgba(15, 118, 110, 0.3);
+  outline: 2px solid var(--accent-ink, #2f6f68);
   outline-offset: 2px;
 }
 
 .status-toggle.is-modified {
-  background: #ecfdf5;
-  color: #115e59;
+  background: var(--accent-soft, #eef5f4);
+  color: var(--accent-ink, #2f6f68);
 }
 
 .t-toggle {
@@ -71,7 +71,7 @@ function toggle(currentValue: boolean) {
 }
 
 .t-toggle[data-on="true"] {
-  background: #0f766e;
+  background: var(--accent, #34756d);
 }
 
 .t-toggle-thumb {

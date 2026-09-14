@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JetBao 设计 Token 提案 · Gallery</title>
+<style>
+/* ============================================================
+   JetBao Token Gallery — standalone, offline, 不参与 vite 构建
+   ============================================================ */
+:root{
+  /* ---- text ---- */
+  --text-strong:#0f172a;
+  --text-body:#1e293b;
+  --text-secondary:#475569;
+  --text-tertiary:#64748b;
+  --text-disabled:#94a3b8;
+
+  /* ---- surfaces ---- */
+  --canvas:#f8faf9;
+  --surface:#ffffff;
+  --surface-subtle:#f8fafc;
+  --surface-muted:#f1f5f9;
+
+  /* ---- borders ---- */
+  --border-hairline:#e2e8f0;
+  --border-strong:#cbd5e1;
+
+  /* ---- accent ---- */
+  --accent:#0f766e;
+  --accent-hover:#115e59;
+  --accent-fg:#ffffff;
+  --accent-subtle:#f0fdfa;
+  --accent-border:#99f6e4;
+
+  /* ---- semantic status ---- */
+  --neutral-bg:#f1f5f9; --neutral-border:#e2e8f0; --neutral-text:#475569;
+  --action-bg:#f0fdfa;  --action-border:#99f6e4;  --action-text:#0f766e;
+  --warn-bg:#fffbeb;    --warn-border:#fde68a;    --warn-text:#b45309;
+  --danger-bg:#fff1f2;  --danger-border:#fecdd3;  --danger-text:#be123c;
+  --done-bg:#f8fafc;    --done-border:#e2e8f0;    --done-text:#64748b;
+
+  /* ---- radius ---- */
+  --radius-sm:6px;
+  --radius-control:8px;
+  --radius-panel:16px;
+  --radius-pill:999px;
+
+  /* ---- shadow ---- */
+  --shadow-flat:0 0 0 1px rgba(15,23,42,.04);
+  --shadow-raised:0 1px 2px rgba(15,23,42,.04), 0 4px 12px -2px rgba(15,23,42,.06);
+  --shadow-overlay:0 8px 16px -4px rgba(15,23,42,.10), 0 24px 48px -12px rgba(15,23,42,.18);
+
+  /* ---- control heights ---- */
+  --control-sm:32px;
+  --control-md:40px;
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  background:var(--canvas);
+  color:var(--text-strong);
+  font-family:var(--font-sans);
+  font-size:14px;
+  line-height:22px;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- page furniture ---------- */
+.sg-top{
+  position:sticky; top:0; z-index:20;
+  display:flex; align-items:center; justify-content:space-between; gap:16px;
+  height:64px; padding:0 24px;
+  background:rgba(255,255,255,.86);
+  backdrop-filter:saturate(180%) blur(12px);
+  border-bottom:1px solid var(--border-hairline);
+}
+.sg-brand{display:flex;align-items:center;gap:12px;min-width:0}
+.sg-mark{
+  display:grid;place-items:center;width:36px;height:36px;flex:none;
+  border-radius:var(--radius-control);background:var(--accent);color:#fff;
+  font-weight:600;font-size:13px;letter-spacing:.02em;
+}
+.sg-brand h1{margin:0;font-size:16px;font-weight:600;line-height:24px}
+.sg-brand p{margin:0;font-size:12px;color:var(--text-tertiary)}
+.sg-badge{
+  display:inline-flex;align-items:center;height:24px;padding:0 10px;
+  border-radius:var(--radius-pill);border:1px solid var(--border-hairline);
+  background:var(--surface-subtle);color:var(--text-tertiary);
+  font-size:12px;font-weight:500;white-space:nowrap;
+}
+
+.sg-shell{display:flex;align-items:flex-start;gap:32px;max-width:1180px;margin:0 auto;padding:32px 24px 96px}
+.sg-toc{position:sticky;top:96px;width:200px;flex:none}
+.sg-toc p{
+  margin:0 0 8px;padding:0 10px;
+  font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);
+}
+.sg-toc a{
+  display:block;padding:6px 10px;border-radius:var(--radius-sm);
+  color:var(--text-secondary);text-decoration:none;font-size:13px;font-weight:500;
+}
+.sg-toc a:hover{background:var(--surface-muted);color:var(--text-strong)}
+.sg-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:56px}
+
+.sg-hero{
+  padding:28px 32px;border-radius:var(--radius-panel);border:1px solid var(--border-hairline);
+  background:linear-gradient(135deg,var(--accent-subtle) 0%,#fff 58%);box-shadow:var(--shadow-raised);
+}
+.sg-hero h2{margin:0;font-size:22px;font-weight:600;line-height:28px}
+.sg-hero p{margin:10px 0 0;max-width:64ch;color:var(--text-secondary)}
+.sg-hero .sg-note{margin-top:14px;font-size:12px;color:var(--text-tertiary)}
+
+.sg-section{display:flex;flex-direction:column;gap:20px;scroll-margin-top:88px}
+.sg-head{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--border-hairline);padding-bottom:10px}
+.sg-head h3{margin:0;font-size:16px;font-weight:600}
+.sg-head span{font-size:12px;color:var(--text-tertiary)}
+.sg-lede{margin:0;max-width:72ch;color:var(--text-secondary)}
+
+.sg-card{
+  border:1px solid var(--border-hairline);background:var(--surface);
+  border-radius:var(--radius-panel);box-shadow:var(--shadow-raised);padding:20px;
+}
+.sg-card > h4{margin:0 0 14px;font-size:13px;font-weight:600;color:var(--text-body)}
+.sg-sub{margin:22px 0 12px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary)}
+.sg-sub:first-child{margin-top:0}
+
+.sg-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.sg-grid-2{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+
+/* ---------- swatches ---------- */
+.sg-sw-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(148px,1fr))}
+.sg-sw{border:1px solid var(--border-hairline);border-radius:var(--radius-control);overflow:hidden;background:var(--surface)}
+.sg-sw i{display:block;height:64px}
+.sg-sw div{padding:8px 10px}
+.sg-sw b{display:block;font-size:12px;font-weight:600;color:var(--text-body)}
+.sg-sw code{display:block;margin-top:2px;font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)}
+
+.sg-pair{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border-hairline);border-radius:var(--radius-control);overflow:hidden}
+.sg-pair > div{padding:12px 14px}
+.sg-pair .lbl{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px}
+.sg-pair .txtA{font-size:16px;font-weight:600}
+.sg-pair .txtB{font-size:16px;font-weight:600}
+
+/* ---------- status tokens ---------- */
+.sg-status{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(232px,1fr))}
+.sg-status .cell{border-radius:var(--radius-control);padding:12px 14px}
+.sg-status .cell b{display:block;font-size:13px;font-weight:600}
+.sg-status .cell span{display:block;margin-top:2px;font-size:12px;opacity:.85}
+.sg-status .cell code{margin-top:8px;display:block;font-family:var(--font-mono);font-size:10.5px;opacity:.75;word-break:break-all}
+.c-neutral{background:var(--neutral-bg);border:1px solid var(--neutral-border);color:var(--neutral-text)}
+.c-action {background:var(--action-bg); border:1px solid var(--action-border); color:var(--action-text)}
+.c-warn   {background:var(--warn-bg);   border:1px solid var(--warn-border);   color:var(--warn-text)}
+.c-danger {background:var(--danger-bg); border:1px solid var(--danger-border); color:var(--danger-text)}
+.c-done   {background:var(--done-bg);   border:1px solid var(--done-border);   color:var(--done-text)}
+
+/* ---------- typography specimen ---------- */
+.sg-type{display:flex;flex-direction:column;gap:0}
+.sg-type .line{
+  display:flex;align-items:baseline;gap:18px;padding:12px 0;border-bottom:1px dashed var(--border-hairline);
+}
+.sg-type .line:last-child{border-bottom:0}
+.sg-type .meta{
+  width:186px;flex:none;font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary);line-height:1.5;
+}
+.sg-type .demo{min-width:0}
+
+.t-display{font-size:30px;line-height:36px;font-weight:600;letter-spacing:-.01em}
+.t-page{font-size:22px;line-height:28px;font-weight:600}
+.t-section{font-size:16px;line-height:24px;font-weight:600}
+.t-body{font-size:14px;line-height:22px;font-weight:400}
+.t-label{font-size:13px;line-height:18px;font-weight:500}
+.t-caption{font-size:12px;line-height:16px;font-weight:400}
+.t-eyebrow{font-size:11px;line-height:16px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+/* ---------- radius ---------- */
+.sg-radii{display:flex;flex-wrap:wrap;gap:16px}
+.sg-radius{width:132px}
+.sg-radius .box{
+  height:74px;display:grid;place-items:center;background:var(--surface-muted);
+  border:1px solid var(--border-hairline);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);
+}
+.sg-radius b{display:block;margin-top:8px;font-size:12px;font-weight:600}
+.sg-radius span{font-size:11px;color:var(--text-tertiary)}
+
+/* ---------- shadow ---------- */
+.sg-shadows{display:grid;gap:20px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.sg-shadow{background:var(--surface-subtle);border-radius:var(--radius-panel);padding:22px 18px}
+.sg-shadow .box{
+  height:76px;border-radius:var(--radius-panel);background:#fff;
+  display:grid;place-items:center;font-size:12px;color:var(--text-secondary);
+}
+.sg-shadow b{display:block;margin-top:12px;font-size:12px;font-weight:600}
+.sg-shadow code{display:block;margin-top:3px;font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary);word-break:break-all}
+.sh-flat{box-shadow:var(--shadow-flat)}
+.sh-raised{box-shadow:var(--shadow-raised)}
+.sh-overlay{box-shadow:var(--shadow-overlay)}
+
+/* nesting demo */
+.sg-nest{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.sg-nest .frame{border-radius:var(--radius-panel);padding:16px}
+.sg-nest .frame .cap{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px}
+.sg-nest .tile{height:56px;border-radius:var(--radius-control);background:var(--surface-muted);display:grid;place-items:center;font-size:11px;color:var(--text-secondary);margin-top:10px}
+.before-frame{border:1px solid var(--border-hairline);background:#fff}
+.before-frame .cap{color:var(--danger-text)}
+.before-tile{box-shadow:0 1px 2px rgba(15,23,42,.05),0 1px 3px rgba(15,23,42,.10);background:#fff;border:1px solid var(--border-hairline)}
+.after-frame{background:#fff;box-shadow:var(--shadow-raised);border:1px solid var(--border-hairline)}
+.after-frame .cap{color:var(--action-text)}
+.after-tile{background:var(--surface-subtle);box-shadow:var(--shadow-flat)}
+
+/* ---------- spacing ---------- */
+.sg-space{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.sg-space .u{text-align:center}
+.sg-space .bar{background:var(--accent-subtle);border:1px solid var(--accent-border);border-radius:2px}
+.sg-space .u span{display:block;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)}
+
+/* ---------- components ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  height:var(--control-md);padding:0 16px;border-radius:var(--radius-control);
+  font-family:inherit;font-size:13px;font-weight:500;line-height:1;cursor:pointer;
+  border:1px solid transparent;transition:background-color .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease;
+}
+.btn.sm{height:var(--control-sm);padding:0 12px;font-size:12px}
+.btn-primary{background:var(--accent);color:var(--accent-fg)}
+.btn-primary:hover{background:var(--accent-hover);box-shadow:var(--shadow-raised)}
+.btn-secondary{background:var(--surface);color:var(--text-body);border-color:var(--border-strong)}
+.btn-secondary:hover{background:var(--surface-subtle);border-color:#94a3b8}
+.btn-ghost{background:transparent;color:var(--text-secondary)}
+.btn-ghost:hover{background:var(--surface-muted);color:var(--text-strong)}
+.btn-danger{background:var(--danger-bg);color:var(--danger-text);border-color:var(--danger-border)}
+.btn-danger:hover{background:#ffe4e6}
+.btn:disabled{background:var(--surface-muted);color:var(--text-disabled);border-color:transparent;cursor:not-allowed;box-shadow:none}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.field{
+  height:var(--control-md);width:100%;padding:0 12px;border-radius:var(--radius-control);
+  border:1px solid var(--border-strong);background:var(--surface);
+  font-family:inherit;font-size:14px;color:var(--text-strong);outline:none;
+  transition:border-color .15s ease,box-shadow .15s ease,background-color .15s ease;
+}
+.field::placeholder{color:var(--text-tertiary)}
+.field:hover{border-color:#94a3b8}
+.field:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(15,118,110,.18)}
+
+.field-inline{
+  height:36px;width:100%;padding:0 2px;border:0;border-bottom:1px solid var(--border-strong);
+  background:transparent;font-family:inherit;font-size:15px;font-weight:500;color:var(--text-strong);outline:none;
+  transition:border-color .15s ease,box-shadow .15s ease;
+}
+.field-inline::placeholder{color:var(--text-tertiary);font-weight:400}
+.field-inline:hover{border-bottom-color:#94a3b8}
+.field-inline:focus{border-bottom-color:var(--accent);box-shadow:0 2px 0 -1px var(--accent)}
+
+.pill{
+  display:inline-flex;align-items:center;height:24px;padding:0 8px;
+  border-radius:var(--radius-pill);font-size:12px;font-weight:500;white-space:nowrap;
+}
+.chip{
+  display:inline-flex;align-items:center;height:24px;padding:0 8px;gap:4px;
+  border-radius:var(--radius-sm);border:1px solid var(--border-hairline);
+  background:var(--surface-subtle);color:var(--text-secondary);font-size:12px;font-weight:500;
+}
+
+.eyebrow{display:block;margin-bottom:6px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary)}
+.form-label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--text-secondary)}
+
+.sg-demo-panel{
+  border:1px solid var(--border-hairline);border-radius:var(--radius-panel);
+  background:var(--surface);box-shadow:var(--shadow-raised);overflow:hidden;
+}
+.sg-demo-panel .body{padding:18px 20px}
+.sg-meter{
+  display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+}
+.stat{
+  border-radius:var(--radius-panel);padding:16px 18px;background:var(--surface);
+  border:1px solid var(--border-hairline);box-shadow:var(--shadow-raised);
+}
+.stat.accent{background:var(--accent-subtle);border-color:var(--accent-border)}
+.stat .k{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary)}
+.stat .v{margin-top:10px;font-size:26px;line-height:30px;font-weight:600}
+.stat.accent .k{color:var(--text-secondary)}
+
+table.sg-table{width:100%;border-collapse:collapse;text-align:left}
+table.sg-table th{
+  padding:10px 14px;background:var(--surface-subtle);border-bottom:1px solid var(--border-hairline);
+  font-size:12px;font-weight:500;color:var(--text-tertiary);white-space:nowrap;
+}
+table.sg-table td{padding:12px 14px;border-bottom:1px solid var(--surface-muted);font-size:13px}
+table.sg-table tr:hover td{background:var(--surface-subtle)}
+table.sg-table td.r,table.sg-table th.r{text-align:right}
+table.sg-table tr.is-done td{background:var(--done-bg);color:var(--done-text)}
+table.sg-table tr.is-done td strong{color:var(--done-text);font-weight:500}
+
+.sg-empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  padding:44px 20px;text-align:center;border:1px dashed var(--border-strong);
+  border-radius:var(--radius-panel);background:var(--surface-subtle);
+}
+.sg-empty .ico{display:grid;place-items:center;width:56px;height:56px;border-radius:var(--radius-pill);background:var(--surface-muted);color:var(--text-tertiary)}
+.sg-empty strong{display:block;font-size:13px;font-weight:600;color:var(--text-body)}
+.sg-empty p{margin:4px 0 0;font-size:12px;color:var(--text-tertiary)}
+
+pre.sg-code{
+  margin:0;padding:16px 18px;overflow-x:auto;
+  background:#0f172a;color:#e2e8f0;border-radius:var(--radius-control);
+  font-family:var(--font-mono);font-size:12px;line-height:1.7;
+}
+pre.sg-code .k{color:#7dd3fc}
+pre.sg-code .s{color:#5eead4}
+pre.sg-code .c{color:#64748b}
+pre.sg-code .n{color:#fcd34d}
+
+.sg-flag{
+  display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:var(--radius-control);
+  background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text);font-size:13px;
+}
+.sg-flag.ok{background:var(--action-bg);border-color:var(--action-border);color:var(--action-text)}
+
+.sg-rule{margin:0;padding-left:20px;color:var(--text-secondary);display:flex;flex-direction:column;gap:7px}
+.sg-rule li::marker{color:var(--text-tertiary)}
+.sg-rule strong{color:var(--text-body)}
+
+@media (max-width:900px){
+  .sg-toc{display:none}
+  .sg-shell{padding:20px 16px 72px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important;animation:none !important;scroll-behavior:auto !important}
+}
+</style>
+</head>
+<body>
+
+<header class="sg-top">
+  <div class="sg-brand">
+    <div class="sg-mark">JB</div>
+    <div>
+      <h1>JetBao 设计 Token 提案</h1>
+      <p>视觉刷新第一步 · 仅 token 层，不改页面结构</p>
+    </div>
+  </div>
+  <span class="sg-badge">standalone · 不参与构建</span>
+</header>
+
+<div class="sg-shell">
+  <nav class="sg-toc">
+    <p>目录</p>
+    <a href="#howto">怎么读这份 gallery</a>
+    <a href="#color">01 颜色</a>
+    <a href="#status">02 状态语义</a>
+    <a href="#type">03 字体与层级</a>
+    <a href="#radius">04 圆角</a>
+    <a href="#shadow">05 阴影与层级</a>
+    <a href="#space">06 间距与布局</a>
+    <a href="#components">07 组件应用</a>
+    <a href="#audit">08 现状对照</a>
+    <a href="#config">09 配置片段</a>
+  </nav>
+
+  <main class="sg-main">
+
+    <section class="sg-hero">
+      <h2>把散落的样式值收成一套 token</h2>
+      <p>
+        页面显得死板，不是因为配色选错，而是因为颜色、圆角、阴影、按钮高度、容器宽度都在每一处单独决定：圆角现在有 5 档（6/12/16/24/…）、页面容器 5 种宽度、按钮 4 种高度，而且同一个"近黑"和同一个"已提交"状态各有两种表现。下面是我准备落进 <code>tailwind.config.js</code> 的 token，以及它们应用后的实际长相。
+      </p>
+      <p class="sg-note">本页是独立 HTML，直接双击浏览器打开即可，不会进入 vite 打包，也不影响现有页面。</p>
+    </section>
+
+    <!-- ============ 怎么读 ============ -->
+    <section class="sg-section" id="howto">
+      <div class="sg-head"><h3>怎么读这份 gallery</h3><span>先看这 3 条</span></div>
+      <div class="sg-card">
+        <ul class="sg-rule">
+          <li><strong>看颜色和圆角即可判断大半</strong>：下面每个色块旁都标了 hex，和我准备写进配置里的值完全一致。你改哪个，我改哪个。</li>
+          <li><strong>阴影那一节是重点</strong>：现在的层级是反的（子元素浮起、父容器扁平），这是"像线框图/Excel"的主因，第 5 节有并排对照。</li>
+          <li><strong>第 8 节是现状审计</strong>：把两个近黑、状态色冲突、圆角混用这些具体问题并排摆出来，方便你判断我的诊断对不对。</li>
+        </ul>
+        <div class="sg-sub">三条硬规则（后面每节都遵守）</div>
+        <ul class="sg-rule">
+          <li><strong>teal 只表示"需要你动手"</strong>。一旦进入"等审核/已归档"，就降为中性灰。现在 teal 同时表示"待提交"和"已提交"，用户建不起颜色映射。</li>
+          <li><strong>一个近黑</strong>：正文只用 <code>#0f172a</code>，删掉偏绿的 <code>ink #10231f</code>。</li>
+          <li><strong>面板浮起、面板内贴片扁平</strong>：阴影方向现在正好相反。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ 01 颜色 ============ -->
+    <section class="sg-section" id="color">
+      <div class="sg-head"><h3>01 颜色</h3><span>单一中性阶 + 一条品牌色阶</span></div>
+      <p class="sg-lede">中性色统一到 Tailwind 的 slate 阶（项目里 95% 的描边和次级文字已经在用它），只保留一个近黑。背景保留现在这个微带青的 <code>#f8faf9</code>，它和品牌色同源；<code>bg-stone-50</code> 全部收掉。</p>
+
+      <div class="sg-card">
+        <h4>文字层级</h4>
+        <div class="sg-sw-grid">
+          <div class="sg-sw"><i style="background:#0f172a"></i><div><b>text-strong</b><code>#0f172a</code></div></div>
+          <div class="sg-sw"><i style="background:#1e293b"></i><div><b>text-body</b><code>#1e293b</code></div></div>
+          <div class="sg-sw"><i style="background:#475569"></i><div><b>text-secondary</b><code>#475569</code></div></div>
+          <div class="sg-sw"><i style="background:#64748b"></i><div><b>text-tertiary</b><code>#64748b</code></div></div>
+          <div class="sg-sw"><i style="background:#94a3b8"></i><div><b>text-disabled</b><code>#94a3b8</code></div></div>
+        </div>
+        <div class="sg-flag" style="margin-top:14px">
+          正文最低档是 <code>#64748b</code>（白底 4.76:1）。<code>#94a3b8</code> 只允许出现在禁用态和 ≥14px 的地方，14px 以下禁用——现在录入行那些 11px 的 <code>slate-400</code> 标签在白底上只有约 2.5:1。
+        </div>
+      </div>
+
+      <div class="sg-card">
+        <h4>品牌色（accent）</h4>
+        <div class="sg-sw-grid">
+          <div class="sg-sw"><i style="background:#0f766e"></i><div><b>accent</b><code>#0f766e</code></div></div>
+          <div class="sg-sw"><i style="background:#115e59"></i><div><b>accent-hover</b><code>#115e59</code></div></div>
+          <div class="sg-sw"><i style="background:#f0fdfa"></i><div><b>accent-subtle</b><code>#f0fdfa</code></div></div>
+          <div class="sg-sw"><i style="background:#99f6e4"></i><div><b>accent-border</b><code>#99f6e4</code></div></div>
+        </div>
+        <p style="margin:14px 0 0;color:var(--text-secondary)">
+          <code>accent</code> 沿用现在的 <code>#0f766e</code>，和 favicon 一致，不动。<code>accent-subtle</code> / <code>accent-border</code> 用来替代散落的 <code>teal-50</code> / <code>teal-200</code>。
+        </p>
+      </div>
+
+      <div class="sg-card">
+        <h4>表面与描边</h4>
+        <div class="sg-sw-grid">
+          <div class="sg-sw"><i style="background:#f8faf9;border-bottom:1px solid #e2e8f0"></i><div><b>canvas</b><code>#f8faf9</code></div></div>
+          <div class="sg-sw"><i style="background:#ffffff;border-bottom:1px solid #e2e8f0"></i><div><b>surface</b><code>#ffffff</code></div></div>
+          <div class="sg-sw"><i style="background:#f8fafc;border-bottom:1px solid #e2e8f0"></i><div><b>surface-subtle</b><code>#f8fafc</code></div></div>
+          <div class="sg-sw"><i style="background:#f1f5f9"></i><div><b>surface-muted</b><code>#f1f5f9</code></div></div>
+          <div class="sg-sw"><i style="background:#e2e8f0"></i><div><b>border-hairline</b><code>#e2e8f0</code></div></div>
+          <div class="sg-sw"><i style="background:#cbd5e1"></i><div><b>border-strong</b><code>#cbd5e1</code></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 02 状态语义 ============ -->
+    <section class="sg-section" id="status">
+      <div class="sg-head"><h3>02 状态语义</h3><span>5 组，每组 bg / border / text 三件套</span></div>
+      <p class="sg-lede">这是修掉"同一状态两种颜色"的关键。每组都是一个整体，页面里不再单独挑色。橙色（现在用于"替票"）并入 amber——它和"待补材料"的 amber 只差一点色相，却是两个含义，合并后少一种颜色。</p>
+
+      <div class="sg-card">
+        <div class="sg-status">
+          <div class="cell c-neutral"><b>neutral · 无需操作</b><span>已提交等审核、信息展示</span><code>bg #f1f5f9 / bd #e2e8f0 / tx #475569</code></div>
+          <div class="cell c-action"><b>action · 该你动手</b><span>待提交、可提交、主操作</span><code>bg #f0fdfa / bd #99f6e4 / tx #0f766e</code></div>
+          <div class="cell c-warn"><b>warn · 缺料 / 待补</b><span>待补材料、替票说明待填</span><code>bg #fffbeb / bd #fde68a / tx #b45309</code></div>
+          <div class="cell c-danger"><b>danger · 被打回</b><span>已打回、不可用抬头</span><code>bg #fff1f2 / bd #fecdd3 / tx #be123c</code></div>
+          <div class="cell c-done"><b>done · 已归档</b><span>已完成，降级显示</span><code>bg #f8fafc / bd #e2e8f0 / tx #64748b</code></div>
+        </div>
+        <div class="sg-sub">对照：现在"已提交"的两套长相</div>
+        <div class="sg-grid-2">
+          <div class="sg-card" style="box-shadow:none;border-radius:var(--radius-control)">
+            <div class="lbl" style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:8px">MonthlyView.vue:175</div>
+            <span class="pill" style="background:#f1f5f9;color:#475569">已提交</span>
+          </div>
+          <div class="sg-card" style="box-shadow:none;border-radius:var(--radius-control)">
+            <div class="lbl" style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:8px">HistoryView.vue:164</div>
+            <span class="pill" style="background:#f0fdfa;color:#0f766e">已提交</span>
+          </div>
+        </div>
+        <div class="sg-flag" style="margin-top:12px">同一个状态，一个灰一个青。提案：统一为 <code>neutral</code>（灰），青色只留给"该你动手"。</div>
+      </div>
+    </section>
+
+    <!-- ============ 03 字体 ============ -->
+    <section class="sg-section" id="type">
+      <div class="sg-head"><h3>03 字体与层级</h3><span>7 档 + 金额等宽数字</span></div>
+      <p class="sg-lede">现在的标题有两套：首页是 <code>text-3xl</code>（30px），其余页是 22px，点侧栏时标题会跳。统一到下面 7 档，页面标题固定 22px。</p>
+
+      <div class="sg-card">
+        <div class="sg-type">
+          <div class="line"><div class="meta">display · 30/36 · 600<br>金额聚焦、空状态主数字</div><div class="demo t-display num">¥12,340.00</div></div>
+          <div class="line"><div class="meta">page-title · 22/28 · 600<br>每页唯一的 h1</div><div class="demo t-page">个人报销</div></div>
+          <div class="line"><div class="meta">section-title · 16/24 · 600<br>面板与卡片标题</div><div class="demo t-section">本月记录</div></div>
+          <div class="line"><div class="meta">body · 14/22 · 400<br>正文默认</div><div class="demo t-body">发票须为有效票据且识别到大于 0 的金额。</div></div>
+          <div class="line"><div class="meta">label · 13/18 · 500<br>表单标签（替换 11px 灰标签）</div><div class="demo t-label">报销事项</div></div>
+          <div class="line"><div class="meta">caption · 12/16 · 400<br>说明、时间、计数，下限</div><div class="demo t-caption">共 12 笔 · 2026-09-14</div></div>
+          <div class="line"><div class="meta">eyebrow · 11/16 · 600<br>仅装饰性眉标，不做表单标签</div><div class="demo t-eyebrow">JetBao / 2026-09</div></div>
+        </div>
+
+        <div class="sg-sub">金额用等宽数字对齐</div>
+        <div class="sg-grid-2">
+          <div>
+            <div class="meta" style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary);margin-bottom:6px">现在（比例数字，小数点错位）</div>
+            <div style="font-size:14px;line-height:24px">
+              ¥1,234.00<br>¥88.50<br>¥12,340.00
+            </div>
+          </div>
+          <div>
+            <div class="meta" style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary);margin-bottom:6px">提案（tabular-nums，逐位对齐）</div>
+            <div class="num" style="font-size:14px;line-height:24px">
+              ¥1,234.00<br>¥88.50<br>¥12,340.00
+            </div>
+          </div>
+        </div>
+
+        <div class="sg-sub">表单标签的对比度修正</div>
+        <div class="sg-grid-2">
+          <div>
+            <div style="font-size:11px;font-weight:600;letter-spacing:.08em;color:#94a3b8;text-transform:uppercase;margin-bottom:6px">报销事项</div>
+            <input class="field" placeholder="现在：11px slate-400，约 2.5:1" disabled />
+          </div>
+          <div>
+            <div style="font-size:13px;font-weight:500;color:#475569;margin-bottom:6px">报销事项</div>
+            <input class="field" placeholder="提案：13px #475569，6.9:1" />
+          </div>
+        </div>
+
+        <div class="sg-flag" style="margin-top:16px">
+          <strong style="font-weight:600">待你定：Inter 字体。</strong>
+          <span>字体栈首位写着 <code>Inter</code>，但 <code>index.html</code> 没有加载任何 webfont，所以它从未生效——macOS 上实际回落到系统 SF。两个选择：自托管 Inter 子集（体积约 30–60KB，字形更统一），或删掉这个假承诺、明确用系统字体栈。本页就是系统字体渲染的效果，可以直接当作后者来看。</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 04 圆角 ============ -->
+    <section class="sg-section" id="radius">
+      <div class="sg-head"><h3>04 圆角</h3><span>从 5 档收到 3 档 + pill</span></div>
+      <p class="sg-lede">现在有 6 / 12 / 16 / 24px 在混用（<code>rounded-md</code> 34 次、<code>lg</code> 25 次、<code>xl</code> 11 次、<code>2xl</code> 3 次、<code>3xl</code> 3 次）。按"用途"而非"感觉"来分：控件、小贴片、容器。</p>
+
+      <div class="sg-card">
+        <div class="sg-radii">
+          <div class="sg-radius"><div class="box" style="border-radius:6px">6px</div><b>radius-sm</b><span>chip、缩略图</span></div>
+          <div class="sg-radius"><div class="box" style="border-radius:8px">8px</div><b>radius-control</b><span>按钮、输入框</span></div>
+          <div class="sg-radius"><div class="box" style="border-radius:16px">16px</div><b>radius-panel</b><span>面板、弹窗、统计卡</span></div>
+          <div class="sg-radius"><div class="box" style="border-radius:999px">999px</div><b>radius-pill</b><span>状态标签</span></div>
+        </div>
+        <div class="sg-flag ok" style="margin-top:16px">容器从 24px 收到 16px、控件从 6px 提到 8px，是"看起来柔和"的主要来源之一——不是把东西都变圆，而是让同一类东西圆得一样。</div>
+      </div>
+    </section>
+
+    <!-- ============ 05 阴影 ============ -->
+    <section class="sg-section" id="shadow">
+      <div class="sg-head"><h3>05 阴影与层级</h3><span>3 档，方向掰正</span></div>
+      <p class="sg-lede">这是"死板"的根因。现在面板用的是 <code>shadow-line</code>——它其实只是 <code>0 1px 0 rgba(15,23,42,.06)</code>，一条发丝线，不是阴影；而面板<strong>内部</strong>的缩略图却用了 <code>shadow-sm</code>。结果是子元素浮起来、父容器是个扁平矩形，整页读起来像线框图。</p>
+
+      <div class="sg-card">
+        <div class="sg-shadows">
+          <div class="sg-shadow">
+            <div class="box sh-flat">发丝线</div>
+            <b>shadow-flat</b>
+            <code>0 0 0 1px rgba(15,23,42,.04)</code>
+          </div>
+          <div class="sg-shadow">
+            <div class="box sh-raised">面板</div>
+            <b>shadow-raised</b>
+            <code>0 1px 2px …,.06</code>
+          </div>
+          <div class="sg-shadow">
+            <div class="box sh-overlay">弹窗</div>
+            <b>shadow-overlay</b>
+            <code>0 8px 16px …,0 24px 48px …</code>
+          </div>
+        </div>
+
+        <div class="sg-sub">嵌套方向：现在的 vs 提案的</div>
+        <div class="sg-nest">
+          <div class="frame before-frame">
+            <div class="cap">现在 · 层级是反的</div>
+            <div style="font-size:12px;color:var(--text-tertiary)">父容器：仅描边，完全贴在页面上</div>
+            <div class="tile before-tile">内部贴片：浮起</div>
+            <div class="tile before-tile">内部贴片：浮起</div>
+          </div>
+          <div class="frame after-frame">
+            <div class="cap">提案 · 父浮起、子扁平</div>
+            <div style="font-size:12px;color:var(--text-tertiary)">父容器：raised，从页面抬起</div>
+            <div class="tile after-tile">内部贴片：flat</div>
+            <div class="tile after-tile">内部贴片：flat</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 06 间距 ============ -->
+    <section class="sg-section" id="space">
+      <div class="sg-head"><h3>06 间距与布局</h3><span>4px 基数，一个容器宽度</span></div>
+      <p class="sg-lede">页面容器现在有 5 种（<code>max-w-3xl / 5xl / 6xl / 7xl / 88rem</code>），垂直节奏 4 种。收成一个容器宽度 + 一个节奏，侧栏切换时页面就不会"呼吸忽大忽小"。</p>
+
+      <div class="sg-card">
+        <div class="sg-space">
+          <div class="u"><div class="bar" style="width:4px;height:44px"></div><span>4</span></div>
+          <div class="u"><div class="bar" style="width:8px;height:44px"></div><span>8</span></div>
+          <div class="u"><div class="bar" style="width:12px;height:44px"></div><span>12</span></div>
+          <div class="u"><div class="bar" style="width:16px;height:44px"></div><span>16</span></div>
+          <div class="u"><div class="bar" style="width:20px;height:44px"></div><span>20</span></div>
+          <div class="u"><div class="bar" style="width:24px;height:44px"></div><span>24</span></div>
+          <div class="u"><div class="bar" style="width:32px;height:44px"></div><span>32</span></div>
+        </div>
+        <div class="sg-sub">布局常量</div>
+        <ul class="sg-rule">
+          <li><strong>页面容器</strong>：单一 <code>max-w-[88rem]</code>，左右留白 <code>16 / 24 / 32px</code>（随断点）。</li>
+          <li><strong>区块节奏</strong>：统一 <code>space-y-6</code>（现在是 5/6/7/8 混用）。</li>
+          <li><strong>控件高度</strong>：<code>32px</code>（sm，行内）/ <code>40px</code>（md，页面级）。现在是 7/8/9/10 四种。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ 07 组件应用 ============ -->
+    <section class="sg-section" id="components">
+      <div class="sg-head"><h3>07 组件应用</h3><span>token 落到真实控件上的样子</span></div>
+      <p class="sg-lede">这一节是为了让 token 可被判断——单独看色块没法知道好不好用。所有控件都用上面的 token 写成，你可以直接试 hover、Tab 聚焦。</p>
+
+      <div class="sg-card">
+        <h4>按钮 · primary / secondary / ghost / danger × md / sm</h4>
+        <div class="sg-row">
+          <button class="btn btn-primary">提交报销</button>
+          <button class="btn btn-secondary">保存待补</button>
+          <button class="btn btn-ghost">收起</button>
+          <button class="btn btn-danger">删除</button>
+          <button class="btn btn-primary" disabled>已禁用</button>
+        </div>
+        <div class="sg-row" style="margin-top:12px">
+          <button class="btn btn-primary sm">提交</button>
+          <button class="btn btn-secondary sm">补材料</button>
+          <button class="btn btn-secondary sm">撤回</button>
+          <button class="btn btn-ghost sm">修改</button>
+        </div>
+        <div class="sg-flag ok" style="margin-top:14px">
+          键盘 <kbd>Tab</kbd> 到任意按钮，会看到 2px 实色 focus ring。现在全站按钮<strong>没有任何</strong> focus-visible 样式。
+        </div>
+      </div>
+
+      <div class="sg-grid-2">
+        <div class="sg-card">
+          <h4>输入框 · 统一 field</h4>
+          <span class="form-label">报销事项</span>
+          <input class="field" placeholder="填写报销事项" />
+          <div style="height:14px"></div>
+          <span class="form-label">金额</span>
+          <input class="field num" placeholder="0.00" />
+          <p style="margin:12px 0 0;font-size:12px;color:var(--text-tertiary)">输入时光标进入即可看到青色描边 + 3px 柔光。现在是 10% 透明 ring，几乎看不见。</p>
+        </div>
+        <div class="sg-card">
+          <h4>录入行 · field-inline（保留但显式化）</h4>
+          <div style="display:grid;grid-template-columns:1fr 96px 120px;gap:16px">
+            <div><span class="eyebrow">报销事项</span><input class="field-inline" placeholder="填写报销事项" /></div>
+            <div><span class="eyebrow">金额</span><input class="field-inline num" placeholder="0.00" /></div>
+            <div><span class="eyebrow">类别</span><input class="field-inline" value="办公用品" /></div>
+          </div>
+          <p style="margin:14px 0 0;font-size:12px;color:var(--text-tertiary)">
+            首页快捷录入现在用的是这套下划线样式，但它是"唯一一个不走设计系统的输入"。提案：保留为显式变体 <code>field-inline</code>，只用于这一行，并给它真正的聚焦反馈。如果你觉得不该有第二种，就说一声，我改成和上面完全一致。
+          </p>
+        </div>
+      </div>
+
+      <div class="sg-card">
+        <h4>状态标签 · 5 组语义</h4>
+        <div class="sg-row">
+          <span class="pill c-action">待提交</span>
+          <span class="pill c-warn">待补材料</span>
+          <span class="pill c-danger">已打回</span>
+          <span class="pill c-neutral">已提交</span>
+          <span class="pill c-done">已完成</span>
+        </div>
+        <div class="sg-sub">属性标签（替票、文件类型等，用中性 chip）</div>
+        <div class="sg-row">
+          <span class="chip">替票</span>
+          <span class="chip">PDF</span>
+          <span class="chip">3 份佐证</span>
+          <span class="chip">重复</span>
+        </div>
+        <div class="sg-flag" style="margin-top:14px">"替票"现在是橙色实心按钮感（<code>orange-500</code>），和"待补材料"的 amber 撞色又不同义。提案：作为属性用中性 chip。</div>
+      </div>
+
+      <div class="sg-card">
+        <h4>面板与统计卡</h4>
+        <div class="sg-meter">
+          <div class="stat accent">
+            <div class="k">已提交</div>
+            <div class="v num">¥12,340.00</div>
+            <div style="margin-top:6px;font-size:12px;color:var(--text-secondary)">3 笔待审核</div>
+          </div>
+          <div class="stat">
+            <div class="k">已打回</div>
+            <div class="v num" style="color:var(--danger-text)">1</div>
+            <div style="margin-top:6px;font-size:12px;color:var(--text-secondary)">需修改后重提</div>
+          </div>
+          <div class="stat">
+            <div class="k">待补材料</div>
+            <div class="v num" style="color:var(--warn-text)">¥2,060.00</div>
+            <div style="margin-top:6px;font-size:12px;color:var(--text-secondary)">2 笔</div>
+          </div>
+        </div>
+        <p style="margin:14px 0 0;font-size:12px;color:var(--text-tertiary)">三张卡统一 16px 圆角与 raised 阴影（现在是 24px 圆角、各带不同色底）。只有第一张保留青色底，因为它表示"该你关注"。</p>
+      </div>
+
+      <div class="sg-card" style="padding:0">
+        <div style="padding:20px 20px 14px"><h4 style="margin:0">表格 · 表头 / hover / 金额右对齐 / 归档行灰化</h4></div>
+        <table class="sg-table">
+          <thead>
+            <tr>
+              <th>状态</th><th>报销事项</th><th>类别</th><th class="r">金额</th><th>发票</th><th class="r">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="pill c-action">待提交</span></td>
+              <td><strong>客户打车</strong></td><td style="color:var(--text-secondary)">交通</td>
+              <td class="r num"><strong>¥200.00</strong></td><td style="color:var(--action-text)">已上传</td>
+              <td class="r"><button class="btn btn-primary sm">提交报销</button></td>
+            </tr>
+            <tr>
+              <td><span class="pill c-warn">待补材料</span></td>
+              <td><strong>办公用品</strong></td><td style="color:var(--text-secondary)">办公</td>
+              <td class="r num"><strong>¥1,860.00</strong></td><td style="color:var(--warn-text)">未上传</td>
+              <td class="r"><button class="btn btn-secondary sm">补材料</button></td>
+            </tr>
+            <tr>
+              <td><span class="pill c-neutral">已提交</span></td>
+              <td><strong>团队午餐</strong></td><td style="color:var(--text-secondary)">餐饮</td>
+              <td class="r num"><strong>¥480.00</strong></td><td style="color:var(--text-secondary)">2 张</td>
+              <td class="r"><button class="btn btn-secondary sm">撤回</button></td>
+            </tr>
+            <tr class="is-done">
+              <td><span class="pill c-done">已完成</span></td>
+              <td><strong>差旅住宿</strong></td><td>差旅</td>
+              <td class="r num"><strong>¥3,120.00</strong></td><td>1 张</td><td class="r">—</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="padding:14px 20px 20px;font-size:12px;color:var(--text-tertiary)">
+          归档行靠"降饱和背景 + 不加粗"表达，而不是把文字压到 3:1 的浅灰。金额统一 <code>tabular-nums</code> 右对齐。
+        </div>
+      </div>
+
+      <div class="sg-card">
+        <h4>空状态 · 统一一种</h4>
+        <div class="sg-empty">
+          <div class="ico">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          </div>
+          <div>
+            <strong>没有匹配记录</strong>
+            <p>调整筛选条件试试。</p>
+          </div>
+        </div>
+        <p style="margin:12px 0 0;font-size:12px;color:var(--text-tertiary)">人员管理页用纵向图标 + 56px 圆形底，报销记录页用裸图标横排——同一个场景两种长相，统一成上面这个。</p>
+      </div>
+    </section>
+
+    <!-- ============ 08 审计 ============ -->
+    <section class="sg-section" id="audit">
+      <div class="sg-head"><h3>08 现状对照</h3><span>我诊断的 5 个问题，逐条摆出来</span></div>
+      <p class="sg-lede">这一节对应我上一轮给你的审查结论。如果你觉得某条判断不成立，现在就能看出来，我会从方案里去掉。</p>
+
+      <div class="sg-card">
+        <h4>A · 两个"近黑"并存</h4>
+        <div class="sg-pair" style="margin-bottom:14px">
+          <div><div class="lbl">ink #10231f · 偏绿</div><div class="txtA" style="color:#10231f">个人报销</div></div>
+          <div><div class="lbl">slate-900 #0f172a · 偏蓝</div><div class="txtB" style="color:#0f172a">发票号码 12345678</div></div>
+        </div>
+        <p style="margin:0;font-size:12px;color:var(--text-tertiary)">这两个值在 MonthlyView 的同一张表里相邻出现（项目名 <code>:922</code> 用 ink，发票号 <code>:860</code> 用 slate-900）。提案保留 <code>#0f172a</code>，删掉 ink。</p>
+      </div>
+
+      <div class="sg-card">
+        <h4>B · 圆角混用（5 档）</h4>
+        <div class="sg-radii">
+          <div class="sg-radius"><div class="box" style="border-radius:6px">6px ×34</div><b>rounded-md</b></div>
+          <div class="sg-radius"><div class="box" style="border-radius:12px">12px ×25</div><b>rounded-lg</b></div>
+          <div class="sg-radius"><div class="box" style="border-radius:16px">16px ×11</div><b>rounded-xl</b></div>
+          <div class="sg-radius"><div class="box" style="border-radius:24px">24px ×3</div><b>rounded-3xl</b></div>
+        </div>
+      </div>
+
+      <div class="sg-card">
+        <h4>C · 容器宽度与页面标题都会跳</h4>
+        <div class="sg-row" style="gap:18px;align-items:flex-end">
+          <div><div class="lbl" style="font-size:11px;color:var(--text-tertiary)">MonthlyView</div><div class="t-display">个人报销</div><div style="font-size:11px;color:var(--text-tertiary)">30px · max-w-6xl</div></div>
+          <div><div class="lbl" style="font-size:11px;color:var(--text-tertiary)">其他页</div><div class="t-page">个人设置</div><div style="font-size:11px;color:var(--text-tertiary)">22px · 3xl/5xl/7xl/88rem</div></div>
+        </div>
+      </div>
+
+      <div class="sg-card">
+        <h4>D · 面板视觉语言分裂</h4>
+        <div class="sg-nest">
+          <div class="frame before-frame">
+            <div class="cap" style="color:var(--text-tertiary)">首页 · 通栏直角</div>
+            <div style="height:56px;background:#fff;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0"></div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">border-y，贴边到底</div>
+          </div>
+          <div class="frame after-frame">
+            <div class="cap" style="color:var(--text-tertiary)">其他页 · 圆角面板</div>
+            <div style="height:56px;background:#fff;border:1px solid #e2e8f0;border-radius:16px"></div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">圆角 + 描边 + 阴影</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sg-card">
+        <h4>E · 行内操作按钮绕过了设计系统</h4>
+        <div class="sg-row" style="margin-bottom:10px">
+          <span style="font-size:11px;color:var(--text-tertiary);width:96px">现在（手写 class）</span>
+          <button style="height:28px;padding:0 8px;border-radius:6px;background:#f0fdfa;color:#0f766e;border:0;font-size:12px">通过</button>
+          <button style="height:28px;padding:0 8px;border-radius:6px;background:#fffbeb;color:#b45309;border:1px solid #fde68a;font-size:12px">打回</button>
+          <button style="height:28px;padding:0 8px;border-radius:6px;background:#fff;color:#475569;border:1px solid #e2e8f0;font-size:12px">预览</button>
+        </div>
+        <div class="sg-row">
+          <span style="font-size:11px;color:var(--text-tertiary);width:96px">提案（组件）</span>
+          <button class="btn btn-primary sm">通过</button>
+          <button class="btn btn-danger sm">打回</button>
+          <button class="btn btn-secondary sm">预览</button>
+        </div>
+        <p style="margin:12px 0 0;font-size:12px;color:var(--text-tertiary)">HistoryView <code>:462-490</code> 有 6 段一次性 class，每段都是自己一套颜色和高度，改一处不动另一处。</p>
+      </div>
+    </section>
+
+    <!-- ============ 09 配置 ============ -->
+    <section class="sg-section" id="config">
+      <div class="sg-head"><h3>09 配置片段</h3><span>你点头后我照着写进代码</span></div>
+
+      <div class="sg-card">
+        <h4>tailwind.config.js（theme.extend）</h4>
+<pre class="sg-code"><span class="c">// 用语义名，不再让页面直接写 teal-700 / slate-400</span>
+theme: {
+  extend: {
+    colors: {
+      accent: { DEFAULT: <span class="s">"#0f766e"</span>, hover: <span class="s">"#115e59"</span>, subtle: <span class="s">"#f0fdfa"</span>, border: <span class="s">"#99f6e4"</span> },
+      surface: { DEFAULT: <span class="s">"#ffffff"</span>, canvas: <span class="s">"#f8faf9"</span>, subtle: <span class="s">"#f8fafc"</span>, muted: <span class="s">"#f1f5f9"</span> },
+      hairline: <span class="s">"#e2e8f0"</span>,
+      strong:   <span class="s">"#cbd5e1"</span>,
+      <span class="c">// 状态三件套：bg / bd / tx</span>
+      state: {
+        neutral: { bg: <span class="s">"#f1f5f9"</span>, bd: <span class="s">"#e2e8f0"</span>, tx: <span class="s">"#475569"</span> },
+        action:  { bg: <span class="s">"#f0fdfa"</span>, bd: <span class="s">"#99f6e4"</span>, tx: <span class="s">"#0f766e"</span> },
+        warn:    { bg: <span class="s">"#fffbeb"</span>, bd: <span class="s">"#fde68a"</span>, tx: <span class="s">"#b45309"</span> },
+        danger:  { bg: <span class="s">"#fff1f2"</span>, bd: <span class="s">"#fecdd3"</span>, tx: <span class="s">"#be123c"</span> },
+        done:    { bg: <span class="s">"#f8fafc"</span>, bd: <span class="s">"#e2e8f0"</span>, tx: <span class="s">"#64748b"</span> }
+      }
+    },
+    borderRadius: { sm: <span class="s">"6px"</span>, control: <span class="s">"8px"</span>, panel: <span class="s">"16px"</span> },
+    boxShadow: {
+      flat:    <span class="s">"0 0 0 1px rgba(15,23,42,.04)"</span>,
+      raised:  <span class="s">"0 1px 2px rgba(15,23,42,.04), 0 4px 12px -2px rgba(15,23,42,.06)"</span>,
+      overlay: <span class="s">"0 8px 16px -4px rgba(15,23,42,.10), 0 24px 48px -12px rgba(15,23,42,.18)"</span>
+    },
+    height: { <span class="s">"control-sm"</span>: <span class="s">"32px"</span>, <span class="s">"control-md"</span>: <span class="s">"40px"</span> }
+  }
+}</pre>
+      </div>
+
+      <div class="sg-card">
+        <h4>style.css（:root + 组件层）</h4>
+<pre class="sg-code"><span class="c">/* 底色统一，不再 bg-stone-50 与 :root 打架 */</span>
+:root {
+  color: <span class="s">#0f172a</span>;
+  background: <span class="s">#f8faf9</span>;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, <span class="s">"PingFang SC"</span>, <span class="s">"Microsoft YaHei"</span>, sans-serif;
+}
+
+<span class="c">/* 金额逐位对齐 */</span>
+.num { font-variant-numeric: tabular-nums; font-feature-settings: <span class="s">"tnum"</span> 1; }
+
+@layer components {
+  .page        { @apply mx-auto w-full max-w-[88rem] space-y-6; }
+  .page-title  { @apply text-[22px] font-semibold leading-7 text-slate-900; }
+  .section-title { @apply text-base font-semibold text-slate-900; }
+  .field-label { @apply text-[13px] font-medium text-slate-600; }
+  .muted       { @apply text-sm text-slate-500; }
+
+  .field { @apply h-10 w-full rounded-control border border-strong bg-white px-3 text-sm
+            text-slate-900 outline-none transition
+            focus:border-accent focus:ring-[3px] focus:ring-accent/20; }
+
+  .btn-base  { @apply inline-flex items-center justify-center gap-2 rounded-control
+               border border-transparent px-4 text-[13px] font-medium leading-none
+               transition focus-visible:outline focus-visible:outline-2
+               focus-visible:outline-offset-2 focus-visible:outline-accent; }
+  .primary-button   { @apply btn-base h-10 bg-accent text-white hover:bg-accent-hover hover:shadow-raised disabled:bg-surface-muted disabled:text-slate-400; }
+  .secondary-button { @apply btn-base h-10 border-strong bg-white text-slate-700 hover:bg-surface-subtle; }
+  .btn-sm { @apply h-8 px-3 text-xs; }
+
+  .pill { @apply inline-flex h-6 items-center rounded-full px-2 text-xs font-medium; }
+  .chip { @apply inline-flex h-6 items-center gap-1 rounded-sm border border-hairline
+          bg-surface-subtle px-2 text-xs font-medium text-slate-600; }
+
+  .panel { @apply rounded-panel border border-hairline bg-white shadow-raised; }
+  .empty-state { @apply flex flex-col items-center justify-center gap-3 rounded-panel
+                 border border-dashed border-strong bg-surface-subtle px-5 py-11 text-center; }
+
+  <span class="c">/* 每页只保留一个 h1，统一 22px */</span>
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}</pre>
+      </div>
+
+      <div class="sg-card">
+        <h4>同时删除的 15 个死类</h4>
+        <p style="margin:0 0 12px;font-size:12px;color:var(--text-tertiary)">这些在 <code>style.css</code> 里零引用，是 V1 工作台的残留，约 100 行（占该文件三分之一）。它们让设计系统看起来比实际成熟，也会误导下一个改样式的人。</p>
+        <div class="sg-row">
+          <span class="chip">action-banner*</span>
+          <span class="chip">guide-hint</span>
+          <span class="chip">field-textarea</span>
+          <span class="chip">intake-grid</span>
+          <span class="chip">record-connector</span>
+          <span class="chip">record-link-button</span>
+          <span class="chip">record-link-caption</span>
+          <span class="chip">work-bar-panel</span>
+          <span class="chip">match-mini-stat</span>
+          <span class="chip">match-progress-*</span>
+          <span class="chip">match-invoice-row</span>
+          <span class="chip">match-empty-copy</span>
+        </div>
+      </div>
+
+      <div class="sg-flag">
+        <strong style="font-weight:600">需要你定两件事。</strong>
+        <span>①字体：自托管 Inter，还是明确改用系统字体栈（本页即后者）？②首页快捷录入的下划线输入要不要保留为 <code>field-inline</code> 变体，还是统一成标准输入框？其余 token 我建议直接按上图执行。</span>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+</body>
+</html>

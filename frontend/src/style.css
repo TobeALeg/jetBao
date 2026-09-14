@@ -3,8 +3,28 @@
 @tailwind utilities;
 
 :root {
-  color: #10231f;
+  color: #0f172a;
   background: #f8faf9;
+
+  /* 品牌色：与 tailwind.config.js 的 accent 保持一致。
+     模板里优先用 Tailwind class（bg-accent-soft 等）；这里的 CSS 变量是给
+     <style scoped> 用的——scoped 样式拿不到 Tailwind theme，只能读变量。 */
+  --accent: #34756d;
+  --accent-hover: #2b635c;
+  --accent-soft: #eef5f4;
+  --accent-line: #c9dedb;
+  --accent-ink: #2f6f68;
+
+  /* 动效 token：只允许动 transform / opacity / 颜色，不动 height / top / margin */
+  --dur-1: 120ms; /* 微交互：hover、按下、聚焦 */
+  --dur-2: 200ms; /* 入场：行、面板、标签换色 */
+  --dur-3: 320ms; /* 覆盖层：弹窗、抽屉 */
+  --dur-4: 520ms; /* 强调：提交成功、金额变化 */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-emphasis: cubic-bezier(0.34, 1.36, 0.64, 1);
+
+  /* AdminUsersView / StatusToggle / InlineAccordionSelect 复用 */
   --acc-expand: 250ms;
   --acc-collapse: 250ms;
   --acc-chevron: 250ms;
@@ -22,6 +42,7 @@
   --shake-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --revert-hold: 3000ms;
   --revert-dur: 280ms;
+
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -44,12 +65,24 @@ textarea {
 }
 
 @layer components {
+  /* ---------- 布局：两个有理由的容器，不再每页各发明一个宽度 ---------- */
+  /* page：数据密集页（列表、表格、台账） */
+  .page {
+    @apply mx-auto w-full max-w-[88rem] space-y-6;
+  }
+
+  /* page-reading：表单 / 说明文，限制阅读宽度而不是铺满 */
+  .page-reading {
+    @apply mx-auto w-full max-w-5xl space-y-6;
+  }
+
+  /* ---------- 文字层级 ---------- */
   .page-title {
-    @apply text-[22px] font-semibold tracking-normal text-ink;
+    @apply text-[22px] font-semibold leading-7 tracking-normal text-slate-900;
   }
 
   .section-title {
-    @apply text-sm font-semibold text-ink;
+    @apply text-base font-semibold text-slate-900;
   }
 
   .muted {
@@ -57,112 +90,147 @@ textarea {
   }
 
   .field-label {
-    @apply text-sm font-medium text-slate-700;
+    @apply text-[13px] font-medium text-slate-600;
   }
 
+  /* 金额等宽：让一列数字的小数点对齐 */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* ---------- 输入：两种语法，各有其职 ---------- */
+  /* field-input：有标签 / 有校验的常规表单一律用它 */
   .field-input {
-    @apply h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-accent focus:ring-2 focus:ring-teal-700/10;
+    @apply h-control-sm w-full rounded-control border border-line-strong bg-white px-3 text-[13px] text-slate-900 outline-none transition duration-1 ease-standard focus:border-accent focus:ring-[3px] focus:ring-accent/20;
   }
 
-  .field-input:hover:not(:disabled),
-  .field-textarea:hover:not(:disabled) {
-    @apply border-slate-300 bg-slate-50;
-  }
-
-  .field-textarea {
-    @apply min-h-24 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-accent focus:ring-2 focus:ring-teal-700/10;
-  }
-
-  .primary-button {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300;
-  }
-
-  .primary-button:hover:not(:disabled) {
-    @apply bg-teal-800 shadow-sm;
-  }
-
-  .secondary-button {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300;
-  }
-
-  .secondary-button:hover:not(:disabled) {
-    @apply bg-slate-50 border-slate-300 shadow-sm;
-  }
-
-  .secondary-button.text-rose-700:hover:not(:disabled) {
-    @apply bg-rose-50 border-rose-200;
-  }
-
-  select:hover:not(:disabled) {
+  .field-input:hover:not(:disabled) {
     @apply border-slate-400;
   }
 
+  /* field-inline：与旁边 2-3 个输入读成一句话，且只用于「个人报销」的快捷录入 */
+  .field-inline {
+    @apply h-[34px] w-full rounded-none border-0 border-b border-line-strong bg-transparent px-0 text-[15px] font-medium text-slate-900 outline-none transition duration-1 ease-standard;
+  }
+
+  .field-inline::placeholder {
+    @apply font-normal text-slate-400;
+  }
+
+  .field-inline:hover {
+    @apply border-slate-400;
+  }
+
+  .field-inline:focus {
+    @apply border-accent shadow-[0_1.5px_0_-0.5px_#34756d];
+  }
+
+  /* ---------- 按钮：默认柔和档；实心只授予唯一的 anchor ---------- */
+  .btn-base {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-control border border-transparent px-3.5 text-[13px] font-medium leading-none transition duration-1 ease-standard focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-mute disabled:text-slate-400 disabled:shadow-none;
+  }
+
+  .primary-button {
+    @apply btn-base h-control-sm border-accent-line bg-accent-soft text-accent-ink hover:bg-accent-line/60 hover:shadow-raised active:translate-y-px;
+  }
+
+  /* 一屏只留一个实心块：给「不可逆 / 最重要」的那个主操作 */
+  .primary-button.is-anchor {
+    @apply border-transparent bg-accent text-white hover:bg-accent-hover;
+  }
+
+  .secondary-button {
+    @apply btn-base h-control-sm border-line-strong bg-white text-slate-700 hover:border-slate-400 hover:bg-surface-soft;
+  }
+
+  .secondary-button.text-rose-700:hover:not(:disabled) {
+    @apply border-state-danger-line bg-state-danger-soft;
+  }
+
+  /* 表格行内的小按钮 */
+  .btn-xs {
+    @apply h-control-xs px-2.5 text-xs;
+  }
+
+  .btn-lg {
+    @apply h-control-lg px-4 text-sm;
+  }
+
+  /* ---------- 状态标签：5 组语义，只引用这三件套 ---------- */
+  .status-pill {
+    @apply inline-flex h-[22px] items-center whitespace-nowrap rounded-full border px-2 text-xs font-medium transition duration-2 ease-standard;
+  }
+
+  .state-neutral {
+    @apply border-state-neutral-line bg-state-neutral-soft text-state-neutral-ink;
+  }
+
+  .state-action {
+    @apply border-state-action-line bg-state-action-soft text-state-action-ink;
+  }
+
+  .state-warn {
+    @apply border-state-warn-line bg-state-warn-soft text-state-warn-ink;
+  }
+
+  .state-danger {
+    @apply border-state-danger-line bg-state-danger-soft text-state-danger-ink;
+  }
+
+  .state-done {
+    @apply border-state-done-line bg-state-done-soft text-state-done-ink;
+  }
+
+  /* 属性 chip（替票、文件类型等），中性，不参与状态语义 */
+  .chip {
+    @apply inline-flex h-[22px] items-center gap-1 rounded-sm border border-hairline bg-surface-soft px-1.5 text-xs font-medium text-slate-600;
+  }
+
+  /* ---------- 面板：浮起；面板内的贴片用 shadow-flat ---------- */
+  .tool-panel {
+    @apply rounded-panel border border-hairline bg-white shadow-raised;
+  }
+
   .upload-zone {
-    @apply transition duration-200 ease-out;
+    @apply transition duration-2 ease-standard;
   }
 
   .upload-zone:hover:not(:disabled) {
-    @apply border-slate-400 bg-slate-50 shadow-sm;
-  }
-
-  .tool-panel {
-    @apply border border-slate-200 bg-white shadow-line;
-  }
-
-  .status-pill {
-    @apply inline-flex h-6 items-center rounded-full px-2 text-xs font-medium;
-  }
-
-  .action-banner {
-    @apply flex items-start gap-3 rounded-lg border px-4 py-3 text-sm;
-  }
-
-  .action-banner-info {
-    @apply action-banner border-teal-200 bg-teal-50 text-teal-900;
-  }
-
-  .action-banner-warn {
-    @apply action-banner border-amber-200 bg-amber-50 text-amber-900;
-  }
-
-  .action-banner-success {
-    @apply action-banner border-teal-200 bg-teal-50 text-teal-800;
-  }
-
-  .guide-hint {
-    @apply flex items-center gap-2 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600;
+    @apply border-accent-line bg-accent-soft shadow-flat;
   }
 
   .empty-state {
-    @apply flex flex-col items-center justify-center gap-3 px-5 py-14 text-center;
+    @apply flex flex-col items-center justify-center gap-3 rounded-panel border border-dashed border-line-strong bg-surface-soft px-5 py-11 text-center;
   }
 
   .empty-state-icon {
-    @apply grid h-14 w-14 place-items-center rounded-full bg-slate-100 text-slate-400;
+    @apply grid h-14 w-14 place-items-center rounded-full bg-surface-mute text-slate-400;
   }
 
+  /* ---------- 侧栏 ---------- */
   .nav-badge {
-    @apply ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800;
+    @apply ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-state-warn-soft px-1.5 text-[10px] font-semibold text-state-warn-ink;
   }
 
   .nav-item {
-    @apply inline-flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition;
+    @apply inline-flex h-11 items-center gap-3 rounded-control px-3 text-sm font-medium transition duration-1 ease-standard;
   }
 
   .nav-item-idle {
-    @apply text-slate-600 hover:bg-slate-50 hover:text-slate-900;
+    @apply text-slate-600 hover:bg-surface-soft hover:text-slate-900;
   }
 
   .nav-item-active {
-    @apply bg-teal-50 text-teal-800 shadow-sm;
+    @apply bg-accent-soft text-accent-ink shadow-flat;
   }
 
   .nav-item-icon {
-    @apply grid h-8 w-8 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-500 transition;
+    @apply grid h-8 w-8 shrink-0 place-items-center rounded-control bg-surface-mute text-slate-500 transition duration-1 ease-standard;
   }
 
   .nav-item-active .nav-item-icon {
-    @apply bg-teal-100 text-teal-700;
+    @apply bg-accent-line text-accent-ink;
   }
 
   .nav-item-idle:hover .nav-item-icon {
@@ -172,88 +240,20 @@ textarea {
   .nav-item-label {
     @apply whitespace-nowrap;
   }
-
-  .intake-grid {
-    @apply grid gap-4 xl:grid-cols-[minmax(0,1fr)_104px_minmax(0,1fr)] xl:items-stretch;
-  }
-
-  .record-connector {
-    @apply relative flex min-h-24 flex-col items-center justify-center;
-  }
-
-  .record-connector::before {
-    content: "";
-    @apply absolute left-0 right-0 top-1/2 h-px bg-slate-200;
-  }
-
-  .record-link-button {
-    @apply relative z-10 flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-full border bg-white text-xs font-semibold text-slate-500 transition disabled:cursor-not-allowed;
-  }
-
-  .record-link-button[data-tone="idle"],
-  .record-link-button[data-tone="waiting"] {
-    @apply border-slate-200 bg-slate-100 text-slate-400;
-  }
-
-  .record-link-button[data-tone="ready"] {
-    @apply border-teal-700 bg-accent text-white shadow-sm hover:bg-teal-800;
-  }
-
-  .record-link-button[data-tone="substitute"] {
-    @apply border-amber-500 bg-amber-500 text-white shadow-sm hover:bg-amber-600;
-  }
-
-  .record-link-caption {
-    @apply relative z-10 mt-2 rounded-full bg-white px-2 py-1 text-[11px] font-medium text-slate-500;
-  }
-
-  .record-connector[data-tone="ready"] .record-link-caption {
-    @apply text-teal-700;
-  }
-
-  .record-connector[data-tone="substitute"] .record-link-caption {
-    @apply text-amber-700;
-  }
-
-  .work-bar-panel {
-    @apply min-h-72 p-5;
-  }
-
-  .match-mini-stat {
-    @apply rounded-md border border-slate-200 bg-white px-3 py-2;
-  }
-
-  .match-mini-stat span {
-    @apply block text-[11px] text-slate-500;
-  }
-
-  .match-mini-stat strong {
-    @apply mt-1 block truncate text-sm font-semibold text-ink;
-  }
-
-  .match-progress-track {
-    @apply h-3 overflow-hidden rounded-full bg-slate-200;
-  }
-
-  .match-progress-fill {
-    @apply h-full rounded-full transition-all duration-300;
-  }
-
-  .match-invoice-row {
-    @apply flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2;
-  }
-
-  .match-empty-copy {
-    @apply flex min-h-44 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-sm text-slate-500;
-  }
 }
 
-@media (min-width: 1280px) {
-  .record-connector::before {
-    left: 50%;
-    right: auto;
-    top: 0;
-    width: 1px;
-    height: 100%;
+select:hover:not(:disabled) {
+  @apply border-slate-400;
+}
+
+/* 只在「写入」时动，且必须可被系统偏好关掉 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

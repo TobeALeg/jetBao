@@ -1,0 +1,973 @@
+<!doctype html>
+<html lang="zh-CN" data-palette="celadon" data-motion="on">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JetBao 设计 Token 提案 v2 · 配色 / 动效 / 尺寸</title>
+<style>
+/* ==========================================================================
+   JetBao Token Gallery v2
+   - 6 套配色，可实时切换（顶部按钮），也可并排对比（第 1 节）
+   - 动效 token 化（第 4 节）
+   - 控件尺寸收紧（第 2 节）
+   - 输入框 vs 录入行的区别（第 3 节）
+   - 进阶设计意见（第 5 节）
+   独立单文件，离线可开，不参与 vite 构建。
+   ========================================================================== */
+
+/* ---------- 1. 配色：同一套 token 名，换一组值 ---------- */
+/* 每个 [data-palette] 块自包含，所以既能挂在 :root 上切换整页，
+   也能挂在任意 div 上做并排对比。 */
+[data-palette="celadon"]{
+  --accent:#0f766e; --accent-hover:#115e59; --accent-subtle:#f0fdfa; --accent-border:#99f6e4;
+  --action-bg:#f0fdfa; --action-border:#99f6e4; --action-text:#0f766e;
+}
+[data-palette="indigo"]{
+  --accent:#4f46e5; --accent-hover:#4338ca; --accent-subtle:#eef2ff; --accent-border:#c7d2fe;
+  --action-bg:#eef2ff; --action-border:#c7d2fe; --action-text:#4338ca;
+}
+[data-palette="steel"]{
+  --accent:#1d4ed8; --accent-hover:#1e40af; --accent-subtle:#eff6ff; --accent-border:#bfdbfe;
+  --action-bg:#eff6ff; --action-border:#bfdbfe; --action-text:#1e40af;
+}
+[data-palette="graphite"]{
+  --accent:#18181b; --accent-hover:#000000; --accent-subtle:#f4f4f5; --accent-border:#d4d4d8;
+  --action-bg:#f4f4f5; --action-border:#d4d4d8; --action-text:#18181b;
+}
+[data-palette="violet"]{
+  --accent:#7c3aed; --accent-hover:#6d28d9; --accent-subtle:#f5f3ff; --accent-border:#ddd6fe;
+  --action-bg:#f5f3ff; --action-border:#ddd6fe; --action-text:#6d28d9;
+}
+[data-palette="forest"]{
+  --accent:#15803d; --accent-hover:#166534; --accent-subtle:#f0fdf4; --accent-border:#bbf7d0;
+  --action-bg:#f0fdf4; --action-border:#bbf7d0; --action-text:#15803d;
+}
+
+/* ---------- 2. 与配色无关的常量 token ---------- */
+:root{
+  --text-strong:#0f172a;
+  --text-body:#1e293b;
+  --text-secondary:#475569;
+  --text-tertiary:#64748b;
+  --text-disabled:#94a3b8;
+
+  --canvas:#f8faf9;
+  --surface:#ffffff;
+  --surface-subtle:#f8fafc;
+  --surface-muted:#f1f5f9;
+
+  --hairline:#e2e8f0;
+  --border-strong:#cbd5e1;
+
+  /* 状态（与品牌色无关，全配色共用） */
+  --neutral-bg:#f1f5f9; --neutral-border:#e2e8f0; --neutral-text:#475569;
+  --warn-bg:#fffbeb;    --warn-border:#fde68a;    --warn-text:#b45309;
+  --danger-bg:#fff1f2;  --danger-border:#fecdd3;  --danger-text:#be123c;
+  --done-bg:#f8fafc;    --done-border:#e2e8f0;    --done-text:#64748b;
+
+  /* 圆角：从 5 档收到 4 档 */
+  --radius-sm:6px;
+  --radius-control:8px;
+  --radius-panel:14px;
+  --radius-pill:999px;
+
+  /* 阴影：方向掰正 —— 面板浮起，面板内贴片扁平 */
+  --shadow-flat:0 0 0 1px rgba(15,23,42,.04);
+  --shadow-raised:0 1px 2px rgba(15,23,42,.04), 0 4px 12px -2px rgba(15,23,42,.06);
+  --shadow-overlay:0 8px 16px -4px rgba(15,23,42,.10), 0 24px 48px -12px rgba(15,23,42,.18);
+
+  /* 控件高度：收紧。默认 32，不再是 40 */
+  --h-xs:28px;
+  --h-sm:32px;
+  --h-lg:36px;
+
+  /* 动效 token */
+  --dur-1:120ms;   /* 微交互：hover / press / focus */
+  --dur-2:200ms;   /* 入场：行、面板、标签 */
+  --dur-3:320ms;   /* 覆盖层：弹窗、抽屉 */
+  --dur-4:520ms;   /* 强调：金额跳动、成功反馈 */
+  --ease-standard:cubic-bezier(.2,0,0,1);      /* 进入，先快后慢 */
+  --ease-exit:cubic-bezier(.4,0,1,1);          /* 退出，先慢后快 */
+  --ease-emphasis:cubic-bezier(.34,1.36,.64,1);/* 轻微回弹，仅用于成功态 */
+
+  --font-sans:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+
+/* 模拟 prefers-reduced-motion，用来现场体验 */
+[data-motion="off"] *,
+[data-motion="off"] *::before,
+[data-motion="off"] *::after{
+  transition-duration:0ms !important;
+  animation-duration:0ms !important;
+  animation-iteration-count:1 !important;
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms !important;animation-duration:.01ms !important;scroll-behavior:auto !important}
+}
+
+/* ---------- 3. 基础 ---------- */
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:var(--canvas);color:var(--text-strong);
+  font-family:var(--font-sans);font-size:14px;line-height:22px;-webkit-font-smoothing:antialiased;
+}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+/* ---------- 4. 页头 ---------- */
+.sg-top{
+  position:sticky;top:0;z-index:30;
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:10px 24px;background:rgba(255,255,255,.88);
+  backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--hairline);
+}
+.sg-brand{display:flex;align-items:center;gap:10px;min-width:0}
+.sg-mark{
+  display:grid;place-items:center;width:30px;height:30px;flex:none;
+  border-radius:var(--radius-control);background:var(--accent);color:#fff;
+  font-weight:600;font-size:12px;transition:background-color var(--dur-2) var(--ease-standard);
+}
+.sg-brand b{font-size:14px;font-weight:600}
+.sg-brand i{display:block;font-size:11px;font-style:normal;color:var(--text-tertiary)}
+.sg-top .grow{flex:1}
+.sg-picker{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sg-picker .lab{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary)}
+.pbtn{
+  display:inline-flex;align-items:center;gap:7px;height:var(--h-xs);padding:0 10px;
+  border-radius:var(--radius-control);border:1px solid var(--hairline);background:#fff;
+  font:inherit;font-size:12px;font-weight:500;color:var(--text-secondary);cursor:pointer;
+  transition:border-color var(--dur-1) var(--ease-standard),background-color var(--dur-1) var(--ease-standard);
+}
+.pbtn:hover{background:var(--surface-subtle)}
+.pbtn.is-on{border-color:var(--text-strong);color:var(--text-strong);box-shadow:var(--shadow-flat)}
+.pbtn .dot{width:12px;height:12px;border-radius:50%;flex:none}
+.sg-switch{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-secondary);cursor:pointer;user-select:none}
+.sg-switch input{accent-color:var(--accent)}
+
+/* ---------- 5. 布局 ---------- */
+.sg-shell{display:flex;align-items:flex-start;gap:32px;max-width:1220px;margin:0 auto;padding:28px 24px 96px}
+.sg-toc{position:sticky;top:104px;width:196px;flex:none}
+.sg-toc p{margin:0 0 8px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary)}
+.sg-toc a{display:block;padding:6px 10px;border-radius:var(--radius-sm);color:var(--text-secondary);text-decoration:none;font-size:13px;font-weight:500;transition:background-color var(--dur-1) var(--ease-standard)}
+.sg-toc a:hover{background:var(--surface-muted);color:var(--text-strong)}
+.sg-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:52px}
+
+.sg-hero{
+  padding:26px 30px;border-radius:var(--radius-panel);border:1px solid var(--hairline);
+  background:linear-gradient(135deg,var(--accent-subtle) 0%,#fff 60%);
+  box-shadow:var(--shadow-raised);
+  transition:background var(--dur-3) var(--ease-standard);
+}
+.sg-hero h2{margin:0;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-.01em}
+.sg-hero .thesis{margin:14px 0 0;font-size:15px;line-height:24px;color:var(--text-body);max-width:66ch}
+.sg-hero .thesis strong{color:var(--text-strong)}
+.sg-hero ul{margin:16px 0 0;padding-left:20px;color:var(--text-secondary);display:flex;flex-direction:column;gap:6px;font-size:13px}
+.sg-hero .note{margin-top:16px;font-size:12px;color:var(--text-tertiary)}
+
+.sg-section{display:flex;flex-direction:column;gap:18px;scroll-margin-top:112px}
+.sg-head{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--hairline);padding-bottom:10px}
+.sg-head h3{margin:0;font-size:16px;font-weight:600}
+.sg-head span{font-size:12px;color:var(--text-tertiary)}
+.sg-lede{margin:0;max-width:74ch;color:var(--text-secondary)}
+.sg-card{border:1px solid var(--hairline);background:var(--surface);border-radius:var(--radius-panel);box-shadow:var(--shadow-raised);padding:20px}
+.sg-card > h4{margin:0 0 14px;font-size:13px;font-weight:600;color:var(--text-body)}
+.sg-sub{margin:22px 0 12px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-tertiary)}
+.sg-sub:first-child{margin-top:0}
+.sg-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.sg-g2{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}
+.sg-g3{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+
+/* ---------- 6. 控件（全部吃 token） ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  height:var(--h-sm);padding:0 14px;border-radius:var(--radius-control);
+  font:inherit;font-size:13px;font-weight:500;line-height:1;cursor:pointer;
+  border:1px solid transparent;white-space:nowrap;
+  transition:background-color var(--dur-1) var(--ease-standard),
+             border-color var(--dur-1) var(--ease-standard),
+             color var(--dur-1) var(--ease-standard),
+             box-shadow var(--dur-1) var(--ease-standard),
+             transform var(--dur-1) var(--ease-standard);
+}
+.btn .ic{width:14px;height:14px;flex:none}
+.btn-xs{height:var(--h-xs);padding:0 10px;font-size:12px}
+.btn-lg{height:var(--h-lg);padding:0 18px;font-size:14px}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-hover);box-shadow:var(--shadow-raised)}
+.btn-primary:active{transform:translateY(1px)}
+.btn-secondary{background:#fff;color:var(--text-body);border-color:var(--border-strong)}
+.btn-secondary:hover{background:var(--surface-subtle);border-color:#94a3b8}
+.btn-ghost{background:transparent;color:var(--text-secondary)}
+.btn-ghost:hover{background:var(--surface-muted);color:var(--text-strong)}
+.btn-danger{background:var(--danger-bg);color:var(--danger-text);border-color:var(--danger-border)}
+.btn-danger:hover{background:#ffe4e6}
+.btn:disabled{background:var(--surface-muted);color:var(--text-disabled);border-color:transparent;cursor:not-allowed;box-shadow:none;transform:none}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn .spinner{width:13px;height:13px;border-radius:50%;border:2px solid currentColor;border-top-color:transparent;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 输入框（标准） */
+.field{
+  height:var(--h-sm);width:100%;padding:0 11px;border-radius:var(--radius-control);
+  border:1px solid var(--border-strong);background:#fff;
+  font:inherit;font-size:13px;color:var(--text-strong);outline:none;
+  transition:border-color var(--dur-1) var(--ease-standard),box-shadow var(--dur-1) var(--ease-standard);
+}
+.field::placeholder{color:var(--text-tertiary)}
+.field:hover{border-color:#94a3b8}
+.field:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+
+/* 录入行（下划线） */
+.field-inline{
+  height:34px;width:100%;padding:0 1px;border:0;border-bottom:1px solid var(--border-strong);
+  background:transparent;font:inherit;font-size:15px;font-weight:500;color:var(--text-strong);outline:none;
+  transition:border-color var(--dur-1) var(--ease-standard),box-shadow var(--dur-1) var(--ease-standard);
+}
+.field-inline::placeholder{color:var(--text-tertiary);font-weight:400}
+.field-inline:hover{border-bottom-color:#94a3b8}
+.field-inline:focus{border-bottom-color:var(--accent);box-shadow:0 1.5px 0 -0.5px var(--accent)}
+
+.pill{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:var(--radius-pill);font-size:12px;font-weight:500;white-space:nowrap}
+.chip{display:inline-flex;align-items:center;height:22px;padding:0 7px;gap:4px;border-radius:var(--radius-sm);border:1px solid var(--hairline);background:var(--surface-subtle);color:var(--text-secondary);font-size:12px;font-weight:500}
+.form-label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--text-secondary)}
+.eyebrow{display:block;margin-bottom:5px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-tertiary)}
+
+.c-neutral{background:var(--neutral-bg);border:1px solid var(--neutral-border);color:var(--neutral-text)}
+.c-action {background:var(--action-bg); border:1px solid var(--action-border); color:var(--action-text)}
+.c-warn   {background:var(--warn-bg);   border:1px solid var(--warn-border);   color:var(--warn-text)}
+.c-danger {background:var(--danger-bg); border:1px solid var(--danger-border); color:var(--danger-text)}
+.c-done   {background:var(--done-bg);   border:1px solid var(--done-border);   color:var(--done-text)}
+
+.panel{border:1px solid var(--hairline);background:#fff;border-radius:var(--radius-panel);box-shadow:var(--shadow-raised)}
+.flag{display:flex;gap:9px;align-items:flex-start;padding:11px 13px;border-radius:var(--radius-control);background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text);font-size:13px;line-height:20px}
+.flag.ok{background:var(--action-bg);border-color:var(--action-border);color:var(--action-text)}
+.flag.bad{background:var(--danger-bg);border-color:var(--danger-border);color:var(--danger-text)}
+.flag code{font-family:var(--font-mono);font-size:12px}
+
+/* ---------- 7. 配色对比卡 ---------- */
+.pal-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.pal{
+  border:1px solid var(--hairline);border-radius:var(--radius-panel);background:#fff;
+  box-shadow:var(--shadow-raised);overflow:hidden;
+}
+.pal-hd{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--hairline)}
+.pal-hd .sw{width:26px;height:26px;border-radius:var(--radius-control);flex:none;background:var(--accent)}
+.pal-hd b{font-size:13px;font-weight:600;display:block}
+.pal-hd i{font-style:normal;font-size:11px;color:var(--text-tertiary)}
+.pal-hd code{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)}
+.pal-bd{padding:14px}
+.pal-bd .line1{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.pal-bd .amt{margin-left:auto;font-size:15px;font-weight:600}
+.pal .note{padding:0 14px 14px;font-size:11.5px;line-height:17px;color:var(--text-tertiary)}
+.pal[data-palette="graphite"] .pal-hd .sw{border:1px solid #3f3f46}
+
+/* ---------- 8. 尺寸对比 ---------- */
+.size-cmp{display:flex;flex-direction:column;gap:14px}
+.size-item{display:flex;align-items:center;gap:14px}
+.size-item .meta{width:210px;flex:none;font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary);line-height:16px}
+.bar-h{display:inline-flex;align-items:center;justify-content:center;border-radius:var(--radius-control);background:var(--surface-muted);border:1px solid var(--hairline);font-family:var(--font-mono);font-size:10.5px;color:var(--text-secondary)}
+.old-h{background:#fff1f2;border-color:#fecdd3;color:#be123c}
+
+/* ---------- 9. 动效 demo ---------- */
+.mo-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.mo{border:1px solid var(--hairline);border-radius:var(--radius-panel);padding:16px;background:#fff}
+.mo h5{margin:0 0 4px;font-size:13px;font-weight:600}
+.mo .d{font-size:11.5px;color:var(--text-tertiary);margin:0 0 12px;line-height:17px}
+.mo .stage{min-height:112px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-control);background:var(--surface-subtle);border:1px dashed var(--hairline);padding:14px;overflow:hidden}
+.mo .ctrl{margin-top:12px}
+.mo code{font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)}
+.mo code b{color:var(--action-text);font-weight:600}
+
+.anim-fade-up{animation:fadeUp var(--dur-2) var(--ease-standard) both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.anim-scale-in{animation:scaleIn var(--dur-3) var(--ease-standard) both}
+@keyframes scaleIn{from{opacity:0;transform:scale(.97) translateY(4px)}to{opacity:1;transform:none}}
+.anim-slide-in{animation:slideIn var(--dur-2) var(--ease-standard) both}
+@keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+.anim-pop{animation:pop var(--dur-4) var(--ease-emphasis) both}
+@keyframes pop{0%{opacity:0;transform:scale(.9)}60%{opacity:1;transform:scale(1.04)}100%{transform:scale(1)}}
+.anim-dot{animation:dotPulse 1.6s var(--ease-standard) infinite}
+@keyframes dotPulse{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}
+
+.mo-row{
+  display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border-radius:var(--radius-control);
+  background:#fff;border:1px solid var(--hairline);
+  transition:background-color var(--dur-2) var(--ease-standard),
+             border-color var(--dur-2) var(--ease-standard),
+             color var(--dur-2) var(--ease-standard);
+}
+.mo-row .st{margin-left:auto}
+.mo-row.warn{background:var(--warn-bg);border-color:var(--warn-border)}
+.mo-row.action{background:var(--action-bg);border-color:var(--action-border)}
+.mo-row.done{background:var(--done-bg);border-color:var(--done-border);color:var(--done-text)}
+
+.rail{position:relative;height:6px;border-radius:999px;background:var(--surface-muted);overflow:hidden;width:100%}
+.rail i{position:absolute;inset:0 auto 0 0;border-radius:999px;background:var(--accent);transition:width var(--dur-4) var(--ease-standard)}
+
+/* ---------- 10. 原则卡 ---------- */
+.pr{border:1px solid var(--hairline);border-radius:var(--radius-panel);background:#fff;box-shadow:var(--shadow-raised);padding:18px 20px}
+.pr .idx{display:inline-flex;align-items:center;justify-content:center;height:20px;min-width:20px;padding:0 6px;border-radius:var(--radius-sm);background:var(--surface-muted);color:var(--text-secondary);font-size:11px;font-weight:600;margin-bottom:10px}
+.pr h4{margin:0 0 8px;font-size:14px;font-weight:600}
+.pr p{margin:0;color:var(--text-secondary);font-size:13px;line-height:20px}
+.pr .pr-body{margin-top:14px;padding-top:14px;border-top:1px dashed var(--hairline)}
+.pr .tagline{font-size:12px;color:var(--text-tertiary);margin-top:10px}
+
+/* stat 卡 vs 账本行 */
+.before-stats{display:grid;gap:10px;grid-template-columns:repeat(3,1fr)}
+.bstat{border-radius:20px;padding:14px 16px;border:1px solid var(--hairline)}
+.bstat b{display:block;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.bstat .v{margin-top:8px;font-size:22px;font-weight:600;line-height:26px}
+.bstat .s{margin-top:2px;font-size:11.5px;color:var(--text-secondary)}
+.ledger-line{
+  display:flex;align-items:center;gap:20px;flex-wrap:wrap;padding:12px 16px;
+  border-radius:var(--radius-panel);border:1px solid var(--hairline);background:#fff;box-shadow:var(--shadow-raised);
+}
+.ledger-line .seg{display:flex;align-items:baseline;gap:7px;font-size:13px}
+.ledger-line .seg .k{color:var(--text-tertiary);font-size:12px}
+.ledger-line .seg .v{font-weight:600;font-size:15px}
+.ledger-line .sep{width:1px;height:20px;background:var(--hairline)}
+.ledger-line .dot{width:7px;height:7px;border-radius:50%;flex:none;align-self:center}
+
+/* ---------- 11. 表格 ---------- */
+table.t{width:100%;border-collapse:collapse;text-align:left}
+table.t th{padding:9px 14px;background:var(--surface-subtle);border-bottom:1px solid var(--hairline);font-size:11.5px;font-weight:500;color:var(--text-tertiary);white-space:nowrap}
+table.t td{padding:10px 14px;border-bottom:1px solid var(--surface-muted);font-size:13px}
+table.t tbody tr{transition:background-color var(--dur-1) var(--ease-standard)}
+table.t tbody tr:hover td{background:var(--surface-subtle)}
+table.t .r{text-align:right}
+table.t tr.is-done td{background:var(--done-bg);color:var(--done-text)}
+table.t tr.is-done td b{color:var(--done-text);font-weight:500}
+
+/* ---------- 12. 代码 ---------- */
+pre.code{margin:0;padding:16px 18px;overflow-x:auto;background:#0f172a;color:#e2e8f0;border-radius:var(--radius-control);font-family:var(--font-mono);font-size:12px;line-height:1.72}
+pre.code .k{color:#7dd3fc}pre.code .s{color:#5eead4}pre.code .c{color:#64748b}pre.code .n{color:#fcd34d}
+
+.rules{margin:0;padding-left:20px;color:var(--text-secondary);display:flex;flex-direction:column;gap:7px;font-size:13px}
+.rules li::marker{color:var(--text-tertiary)}
+.rules strong{color:var(--text-body)}
+.rules code{font-family:var(--font-mono);font-size:12px;color:var(--text-body)}
+
+.kbd{display:inline-flex;align-items:center;height:18px;padding:0 5px;border-radius:4px;border:1px solid var(--border-strong);border-bottom-width:2px;background:#fff;font-family:var(--font-mono);font-size:10.5px;color:var(--text-secondary)}
+
+@media (max-width:940px){.sg-toc{display:none}.sg-shell{padding:20px 16px 72px}}
+</style>
+</head>
+<body>
+
+<header class="sg-top">
+  <div class="sg-brand">
+    <div class="sg-mark">JB</div>
+    <div>
+      <b>Token 提案 v2</b>
+      <i>配色 · 动效 · 尺寸 · 进阶意见</i>
+    </div>
+  </div>
+  <div class="grow"></div>
+  <div class="sg-picker">
+    <span class="lab">配色</span>
+    <button class="pbtn is-on" data-set-palette="celadon" data-label="青瓷 Celadon"><span class="dot" style="background:#0f766e"></span>青瓷</button>
+    <button class="pbtn" data-set-palette="indigo" data-label="靛蓝 Indigo"><span class="dot" style="background:#4f46e5"></span>靛蓝</button>
+    <button class="pbtn" data-set-palette="steel" data-label="钢蓝 Steel"><span class="dot" style="background:#1d4ed8"></span>钢蓝</button>
+    <button class="pbtn" data-set-palette="graphite" data-label="石墨 Graphite"><span class="dot" style="background:#18181b"></span>石墨</button>
+    <button class="pbtn" data-set-palette="violet" data-label="紫罗兰 Violet"><span class="dot" style="background:#7c3aed"></span>紫罗兰</button>
+    <button class="pbtn" data-set-palette="forest" data-label="松柏 Forest"><span class="dot" style="background:#15803d"></span>松柏</button>
+  </div>
+  <label class="sg-switch"><input type="checkbox" id="motion-toggle" /> 关掉动效</label>
+</header>
+
+<div class="sg-shell">
+  <nav class="sg-toc">
+    <p>目录</p>
+    <a href="#thesis">00 核心判断</a>
+    <a href="#palette">01 配色 · 6 选 1</a>
+    <a href="#size">02 控件尺寸（修高大按钮）</a>
+    <a href="#field">03 输入框 vs 录入行</a>
+    <a href="#motion">04 动效 token</a>
+    <a href="#think">05 进阶设计意见</a>
+    <a href="#config">06 配置片段</a>
+  </nav>
+
+  <main class="sg-main">
+
+    <!-- ============ 00 ============ -->
+    <section class="sg-hero" id="thesis">
+      <h2>JetBao 是账本，不是仪表盘</h2>
+      <p class="thesis">
+        现在这套 UI 漂进了 dashboard 的审美：三张 24px 圆角的大色块统计卡、彩色胶囊、装饰性渐变。但 JetBao 实际是一个<strong>高频、密集、以「行」为主</strong>的工作工具——员工的日常是反复看列表、补材料、提交，管理员的日常是扫一整屏记录然后通过。
+      </p>
+      <ul>
+        <li>仪表盘的语法是「先看大局，再钻取」；账本的语法是「一屏内扫完，直接动手」。</li>
+        <li>仪表盘用颜色区分信息类别；账本只在「需要你处理」时才上颜色，其余靠位置、字重和数字对齐。</li>
+        <li>仪表盘靠留白和卡片撑出呼吸感；账本靠<strong>高密度但不拥挤</strong>获得效率。</li>
+      </ul>
+      <p class="note">下面 4 个决定都从这一条推出来。配色是表象，语法才是"死板"或"先进"的分界。</p>
+    </section>
+
+    <!-- ============ 01 配色 ============ -->
+    <section class="sg-section" id="palette">
+      <div class="sg-head"><h3>01 配色 · 6 选 1</h3><span>顶部可实时切换整页</span></div>
+      <p class="sg-lede">
+        6 套都保持同一件事：<strong>中性底 + 一条强调色阶 + 4 组固定状态色</strong>。换的只是那条强调色。关键判断标准不是"哪个色好看"，而是<strong>它和状态色打不打架</strong>——因为你的界面里同时有打回(红)、待补(琥珀)、完成(灰)三种状态，强调色一旦撞进这些色相，状态就说不清了。
+      </p>
+
+      <div class="pal-grid">
+        <!-- celadon -->
+        <div class="pal" data-palette="celadon">
+          <div class="pal-hd"><span class="sw"></span><div><b>青瓷 Celadon</b><i>延续现有品牌</i></div><code>#0f766e</code></div>
+          <div class="pal-bd">
+            <div class="line1"><span class="pill c-action">待提交</span><span class="pill c-warn">待补材料</span><span class="pill c-danger">已打回</span><span class="amt num">¥1,234.00</span></div>
+            <div class="sg-row"><button class="btn btn-primary btn-xs">提交报销</button><button class="btn btn-secondary btn-xs">保存待补</button></div>
+          </div>
+          <div class="note">最稳。和 favicon、登录页已经是同一个色，改动成本最低。缺点是和"完成"的灰绿有点近，靠灰化程度还能拉开。风险：**低**</div>
+        </div>
+
+        <!-- indigo -->
+        <div class="pal" data-palette="indigo">
+          <div class="pal-hd"><span class="sw"></span><div><b>靛蓝 Indigo</b><i>现代工具感</i></div><code>#4f46e5</code></div>
+          <div class="pal-bd">
+            <div class="line1"><span class="pill c-action">待提交</span><span class="pill c-warn">待补材料</span><span class="pill c-danger">已打回</span><span class="amt num">¥1,234.00</span></div>
+            <div class="sg-row"><button class="btn btn-primary btn-xs">提交报销</button><button class="btn btn-secondary btn-xs">保存待补</button></div>
+          </div>
+          <div class="note">最"新"。靛蓝和红/琥珀/灰都隔得远，四种状态一眼分得开。这个色现在在工具类产品里很常见（Linear 系），偏年轻。</div>
+        </div>
+
+        <!-- steel -->
+        <div class="pal" data-palette="steel">
+          <div class="pal-hd"><span class="sw"></span><div><b>钢蓝 Steel</b><i>金融、可信</i></div><code>#1d4ed8</code></div>
+          <div class="pal-bd">
+            <div class="line1"><span class="pill c-action">待提交</span><span class="pill c-warn">待补材料</span><span class="pill c-danger">已打回</span><span class="amt num">¥1,234.00</span></div>
+            <div class="sg-row"><button class="btn btn-primary btn-xs">提交报销</button><button class="btn btn-secondary btn-xs">保存待补</button></div>
+          </div>
+          <div class="note">最常见的"报销软件"色，正确但不出挑。给不熟悉系统的同事用最不需要解释。如果你想要"看起来正规"，选它。</div>
+        </div>
+
+        <!-- graphite -->
+        <div class="pal" data-palette="graphite">
+          <div class="pal-hd"><span class="sw"></span><div><b>石墨 Graphite</b><i>内容优先，颜色只留给状态</i></div><code>#18181b</code></div>
+          <div class="pal-bd">
+            <div class="line1"><span class="pill c-action">待提交</span><span class="pill c-warn">待补材料</span><span class="pill c-danger">已打回</span><span class="amt num">¥1,234.00</span></div>
+            <div class="sg-row"><button class="btn btn-primary btn-xs">提交报销</button><button class="btn btn-secondary btn-xs">保存待补</button></div>
+          </div>
+          <div class="note"><b style="color:#b45309">我推荐这套。</b>强调色接近黑，于是"颜色"这件事被完整让给了状态：打回是红的、待补是琥珀的、该动手的是深色的，界面一下子安静、数字和表格变成主角。这也是 Vercel / 部分 Linear 页面在用的思路。唯一代价：favicon 和登录页左侧的青色要一起换掉。</div>
+        </div>
+
+        <!-- violet -->
+        <div class="pal" data-palette="violet">
+          <div class="pal-hd"><span class="sw"></span><div><b>紫罗兰 Violet</b><i>个性强</i></div><code>#7c3aed</code></div>
+          <div class="pal-bd">
+            <div class="line1"><span class="pill c-action">待提交</span><span class="pill c-warn">待补材料</span><span class="pill c-danger">已打回</span><span class="amt num">¥1,234.00</span></div>
+            <div class="sg-row"><button class="btn btn-primary btn-xs">提交报销</button><button class="btn btn-secondary btn-xs">保存待补</button></div>
+          </div>
+          <div class="note"><b style="color:#be123c">有冲突，谨慎。</b>紫和"已打回"的玫红同属紫红区，两者放近会混。如果喜欢紫色系，建议把打回改成更纯的正红。</div>
+        </div>
+
+        <!-- forest -->
+        <div class="pal" data-palette="forest">
+          <div class="pal-hd"><span class="sw"></span><div><b>松柏 Forest</b><i>财务 / 增长</i></div><code>#15803d</code></div>
+          <div class="pal-bd">
+            <div class="line1"><span class="pill c-action">待提交</span><span class="pill c-warn">待补材料</span><span class="pill c-danger">已打回</span><span class="amt num">¥1,234.00</span></div>
+            <div class="sg-row"><button class="btn btn-primary btn-xs">提交报销</button><button class="btn btn-secondary btn-xs">保存待补</button></div>
+          </div>
+          <div class="note"><b style="color:#be123c">有冲突。</b>绿在报销语境里天然意味着"通过 / 成功"，用它当"该你提交"的强调色，用户会误读成"已经好了"。不建议。</div>
+        </div>
+      </div>
+
+      <div class="sg-card">
+        <h4>选色时真正要看的三条</h4>
+        <ul class="rules">
+          <li><strong>别和状态色撞。</strong>界面里固定有 4 组状态色（中性 / 缺料琥珀 / 打回玫红 / 完成灰）。强调色必须离它们都够远，否则状态就靠不住。这一条直接淘汰了松柏，也让紫罗兰有风险。</li>
+          <li><strong>强调色会大量出现在"文字"上。</strong>不是只做按钮底色——它是"待提交"标签的字色。所以要选一个<strong>在白底上作正文色也够清楚</strong>的深浅（这也是为什么不能选亮色系）。</li>
+          <li><strong>只保留一条。</strong>现在的代码里同时写 <code>accent #0f766e</code> 和 <code>teal-700</code>，是同一个色的两条路径。选定之后，页面里不再出现任何原始的 <code>teal-*</code>。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ 02 尺寸 ============ -->
+    <section class="sg-section" id="size">
+      <div class="sg-head"><h3>02 控件尺寸</h3><span>你说的大按钮偏高 —— 同意，砍掉 8px</span></div>
+      <p class="sg-lede">
+        你的感觉是对的，而且有客观依据：现在全站按钮是 <code>h-10 = 40px</code>，输入框也是 40px，但表格行内按钮又是 28–36px 混着来。<strong>40px 是移动端触摸尺寸</strong>，放在桌面端密集工具里就是浪费纵向空间——一屏本来能放 14 行记录，现在只能放 10 行。
+      </p>
+
+      <div class="sg-card">
+        <h4>高度对比</h4>
+        <div class="size-cmp">
+          <div class="size-item">
+            <div class="meta">现在 · primary-button<br>h-10 = 40px（触摸尺寸）</div>
+            <div class="bar-h old-h" style="height:40px;width:132px">40px · 现状</div>
+          </div>
+          <div class="size-item">
+            <div class="meta">提案 · btn-lg<br>36px（仅登录页这类强调场景）</div>
+            <div class="bar-h" style="height:36px;width:132px">36px</div>
+          </div>
+          <div class="size-item">
+            <div class="meta">提案 · btn（默认）<br>32px ← 主按钮、页头都在这</div>
+            <div class="bar-h" style="height:32px;width:132px;background:var(--accent-subtle);border-color:var(--accent-border);color:var(--action-text)">32px · 默认</div>
+          </div>
+          <div class="size-item">
+            <div class="meta">提案 · btn-xs<br>28px（表格行内操作）</div>
+            <div class="bar-h" style="height:28px;width:132px">28px</div>
+          </div>
+        </div>
+
+        <div class="sg-sub">同一段工具栏：40px vs 32px</div>
+        <div class="sg-g2">
+          <div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">现在</div>
+            <div class="sg-row">
+              <button class="bar-h" style="height:40px;padding:0 16px;background:var(--accent);border-color:transparent;color:#fff;font-family:inherit;font-size:13px">一键通过（3）</button>
+              <button class="bar-h" style="height:40px;padding:0 16px;font-family:inherit;font-size:13px">导出</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">提案</div>
+            <div class="sg-row">
+              <button class="btn btn-primary">一键通过（3）</button>
+              <button class="btn btn-secondary">导出</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="sg-sub">输入框同步收窄到 32px</div>
+        <div class="sg-row">
+          <input class="field" style="max-width:200px" placeholder="默认输入框 32px" />
+          <input class="field" style="max-width:150px" placeholder="金额" />
+        </div>
+        <div class="flag ok" style="margin-top:14px">
+          按钮和输入框必须<strong>等高</strong>——它们经常并排出现在工具栏里（现在 HistoryView 的筛选栏就是）。40px 的输入框 + 28px 的按钮放在一行，是"没对齐"的常见来源。
+        </div>
+        <p class="tagline" style="font-size:12px;color:var(--text-tertiary);margin-top:12px">
+          如果觉得 32 太紧，可以整体提到 34，但我建议先按 32 试一版——它是一屏多出一行的差别。
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 03 输入框 vs 录入行 ============ -->
+    <section class="sg-section" id="field">
+      <div class="sg-head"><h3>03 输入框 vs 录入行</h3><span>它们不是两种样式，是两种语法</span></div>
+      <p class="sg-lede">
+        现在首页快捷录入用的是下划线式无边框输入（<code>border-0 border-b</code>），而全站其他表单用的是填充式输入框（<code>.field-input</code>）。这不是"有人忘了统一"，而是它们本来就该长得不一样——但要<strong>把规则写下来</strong>，否则它看起来永远像没做完。
+      </p>
+
+      <div class="sg-card">
+        <h4>并排看</h4>
+        <div class="sg-g2">
+          <div>
+            <span class="form-label">field · 标准输入框</span>
+            <input class="field" placeholder="填写报销事项" />
+            <ul class="rules" style="margin-top:12px;font-size:12px">
+              <li><strong>有边界。</strong>描边把"这里可以写"框出来，扫描时找得到。</li>
+              <li><strong>语法：表单。</strong>我在"填写一份表单"。</li>
+              <li><strong>用于</strong>：登录、新建员工、修改密码、筛选栏——有标签在上方、可能有校验错误、按顺序填写的地方。</li>
+            </ul>
+          </div>
+          <div>
+            <span class="eyebrow">field-inline · 录入行</span>
+            <input class="field-inline" placeholder="填写报销事项" />
+            <ul class="rules" style="margin-top:12px;font-size:12px">
+              <li><strong>只有底线。</strong>视觉上像账本里的一行、收据上的一条。</li>
+              <li><strong>语法：记录。</strong>我在"往账本里写一行"。</li>
+              <li><strong>只用于</strong>：首页那一行快捷录入，因为它是三个词连成的一句话，不是一张表单。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="sg-sub">为什么首页用录入行：它读起来是一句话</div>
+        <div class="sg-card" style="box-shadow:none;border-radius:var(--radius-control);background:var(--surface-subtle)">
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 92px 116px;gap:18px;align-items:end">
+            <div><span class="eyebrow">报销事项</span><input class="field-inline" placeholder="客户打车" /></div>
+            <div><span class="eyebrow">金额</span><input class="field-inline num" placeholder="200" /></div>
+            <div><span class="eyebrow">类别</span><input class="field-inline" value="交通" /></div>
+          </div>
+          <p style="margin:14px 0 0;font-size:12.5px;color:var(--text-secondary)">
+            读作：<b>「我把 客户打车 花了 200 元，类别 交通。」</b> 划线让这三段看起来是同一句话里的词。若换成三个填充框，它会读成"一张有三个字段的表单"，心理成本高一档——用户会开始想"我是不是要按什么顺序填"。
+          </p>
+        </div>
+
+        <div class="sg-sub">决策规则（写进代码注释，下次不用再猜）</div>
+        <div class="sg-card" style="box-shadow:none;border-radius:var(--radius-control)">
+          <table class="t">
+            <thead><tr><th>问自己</th><th>是</th><th>否</th></tr></thead>
+            <tbody>
+              <tr><td>它有上方的标签吗？</td><td>用 <code>field</code></td><td>可能是 inline</td></tr>
+              <tr><td>填错要显示错误信息吗？</td><td>用 <code>field</code></td><td>—</td></tr>
+              <tr><td>它和旁边 2–3 个输入读成一句话吗？</td><td>用 <code>field-inline</code></td><td>用 <code>field</code></td></tr>
+              <tr><td>它出现在"快速记录"这一处之外吗？</td><td>—</td><td>一律用 <code>field</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flag" style="margin-top:4px">
+          <span><strong>这就是我上次问你"要不要保留"的真正原因。</strong>保留它是有设计理由的（记账隐喻），但必须①改名成 <code>field-inline</code> 表达"它是一个显式变体"，②只允许出现在快捷录入这一处，③给它真正的聚焦反馈（现在只有边框变色，仍用 11px 灰标签）。如果你觉得多一种样式不值得，我就删掉它、首页也统一成标准框——那我就把"一句话"的观感改成三个独立字段，也是完全可接受的取舍。</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 04 动效 ============ -->
+    <section class="sg-section" id="motion">
+      <div class="sg-head"><h3>04 动效 token</h3><span>动效用来解释状态变化，不用来装饰</span></div>
+      <p class="sg-lede">
+        现在全站唯一的动效是 12 处 <code>animate-spin</code>（转圈加载）。一个高频工作工具"感觉是死的"，通常不是缺动画，而是<strong>状态变化时没有任何反馈</strong>——补完材料那行还是那行，用户不确定刚才那一下有没有生效。下面 4 个时长 + 3 条曲线，全部 token 化，且只允许动 <code>transform</code> / <code>opacity</code> / 颜色。
+      </p>
+
+      <div class="sg-card">
+        <h4>时长与曲线</h4>
+        <div class="sg-g3">
+          <div><span class="eyebrow">--dur-1 · 120ms</span><code style="font-family:var(--font-mono);font-size:12px;color:var(--text-secondary)">ease-standard</code><p style="margin:6px 0 0;font-size:12px;color:var(--text-tertiary)">微交互：hover、按下、聚焦。要快到感觉不到"在动"。</p></div>
+          <div><span class="eyebrow">--dur-2 · 200ms</span><code style="font-family:var(--font-mono);font-size:12px;color:var(--text-secondary)">ease-standard</code><p style="margin:6px 0 0;font-size:12px;color:var(--text-tertiary)">入场：新行插入、面板展开、标签换色。</p></div>
+          <div><span class="eyebrow">--dur-3 · 320ms</span><code style="font-family:var(--font-mono);font-size:12px;color:var(--text-secondary)">ease-standard</code><p style="margin:6px 0 0;font-size:12px;color:var(--text-tertiary)">覆盖层：弹窗、附件预览、抽屉。</p></div>
+          <div><span class="eyebrow">--dur-4 · 520ms</span><code style="font-family:var(--font-mono);font-size:12px;color:var(--text-secondary)">ease-emphasis</code><p style="margin:6px 0 0;font-size:12px;color:var(--text-tertiary)">强调：提交成功、金额变化。唯一允许轻微回弹的地方。</p></div>
+        </div>
+        <div class="flag ok" style="margin-top:16px">
+          <span><strong>三条硬规则。</strong>① 只动 <code>transform</code>/<code>opacity</code>/颜色，永不动 <code>height</code>、<code>top</code>、<code>margin</code>（会触发重排、卡顿）。② 工作工具<strong>只在"写入"时动，不在"读取"时动</strong>——打开列表不要整屏依次浮现，那会拖慢日常使用。③ 所有动效必须能被 <code>prefers-reduced-motion</code> 关掉（右上角有开关，你可以现在关掉感受一下）。</span>
+        </div>
+      </div>
+
+      <div class="mo-grid">
+        <div class="mo">
+          <h5>① 面板入场 · fade-up</h5>
+          <p class="d">弹窗 / 展开一个面板时。只此一处，不做整页级联。</p>
+          <div class="stage"><div class="panel" id="d-panel" style="padding:14px 16px;min-width:180px"><div style="font-size:13px;font-weight:600">审核预览</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">3 份佐证 · 2 张发票</div></div></div>
+          <div class="ctrl"><button class="btn btn-secondary btn-xs" onclick="play('d-panel','anim-fade-up')">播放 <code>dur-2</code></button></div>
+        </div>
+
+        <div class="mo">
+          <h5>② 行状态变化 · 颜色过渡</h5>
+          <p class="d">最值得加的一个。补完材料后那行从琥珀变青，用户立刻知道生效了。</p>
+          <div class="stage"><div class="mo-row warn" id="d-row"><span style="font-size:13px;font-weight:500">办公用品</span><span class="st pill c-warn" id="d-row-pill">待补材料</span></div></div>
+          <div class="ctrl"><button class="btn btn-secondary btn-xs" onclick="cycleRow()">下一状态</button></div>
+        </div>
+
+        <div class="mo">
+          <h5>③ 提交成功 · pop</h5>
+          <p class="d">唯一允许回弹的地方。给"提交"这种不可逆动作一个确定感。</p>
+          <div class="stage"><span class="pill c-action" id="d-pop" style="height:26px;padding:0 12px;font-size:13px">已提交</span></div>
+          <div class="ctrl"><button class="btn btn-secondary btn-xs" onclick="play('d-pop','anim-pop')">播放 <code>dur-4</code></button></div>
+        </div>
+
+        <div class="mo">
+          <h5>④ 金额变化 · 计数</h5>
+          <p class="d">新增记录后汇总金额滚动到新值，而不是瞬间跳变。</p>
+          <div class="stage"><div style="text-align:center"><div style="font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-tertiary)">本月已提交</div><div class="num" id="d-amt" style="font-size:24px;font-weight:600;margin-top:6px">¥12,340.00</div></div></div>
+          <div class="ctrl"><button class="btn btn-secondary btn-xs" onclick="bump()">新增一笔 <code>dur-4</code></button></div>
+        </div>
+
+        <div class="mo">
+          <h5>⑤ 待处理提示 · dot-pulse</h5>
+          <p class="d">极轻的呼吸点，用于"有 N 笔等你处理"。比红点克制。</p>
+          <div class="stage"><span class="chip" style="height:26px;padding:0 10px"><span class="dot anim-dot" style="width:7px;height:7px;border-radius:50%;background:var(--accent)"></span>3 笔待审核</span></div>
+          <div class="ctrl"><code>infinite · 1.6s</code></div>
+        </div>
+
+        <div class="mo">
+          <h5>⑥ 上传进度 · 宽度过渡</h5>
+          <p class="d">OCR 识别时给一条真实进度，替代一个转圈图标。</p>
+          <div class="stage">
+            <div style="width:100%"><div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px" id="d-rail-label">识别中…</div><div class="rail"><i id="d-rail" style="width:12%"></i></div></div>
+          </div>
+          <div class="ctrl"><button class="btn btn-secondary btn-xs" onclick="runRail()">开始识别</button></div>
+        </div>
+      </div>
+
+      <div class="sg-card">
+        <h4>按钮的按下反馈</h4>
+        <div class="sg-row">
+          <button class="btn btn-primary">按住我看效果</button>
+          <button class="btn btn-secondary">次级</button>
+          <button class="btn btn-primary" disabled><span class="spinner"></span>提交中…</button>
+        </div>
+        <p style="margin:12px 0 0;font-size:12.5px;color:var(--text-tertiary)">主按钮 hover 抬起 1px 阴影、按下下沉 1px（<code>dur-1</code>）。这是让界面"有手感"的最低成本做法——比加任何渐变都有效。</p>
+      </div>
+    </section>
+
+    <!-- ============ 05 进阶意见 ============ -->
+    <section class="sg-section" id="think">
+      <div class="sg-head"><h3>05 进阶设计意见</h3><span>5 条跳出现状的改法</span></div>
+      <p class="sg-lede">这一节不是"把 token 应用到现有页面"，而是<strong>质疑现有页面的构成</strong>。每条都给了现状和改法的具体对照，你可以逐条否掉。</p>
+
+      <div class="pr">
+        <span class="idx">01</span>
+        <h4>删掉三张统计卡，换成一行账本摘要</h4>
+        <p>首页顶部那三张 <code>rounded-3xl</code> 大色块卡（青色/玫红/橙色）是全站最"像模板"的地方，占掉约 130px 首屏高度，只为显示 3 个数字。而它们承载的 4 个信息（已提交金额、待审笔数、待补金额、打回笔数）本质是<strong>一条摘要</strong>，不是三张卡片。</p>
+        <div class="pr-body">
+          <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:10px">现在 · 3 张卡，约 130px</div>
+          <div class="before-stats">
+            <div class="bstat" style="background:#f0fdfa;border-color:#99f6e4"><b style="color:#0f766e">已提交</b><div class="v num">¥12,340</div><div class="s">3 笔待审核</div></div>
+            <div class="bstat" style="background:#fff1f2;border-color:#fecdd3"><b style="color:#be123c">已打回</b><div class="v num" style="color:#9f1239">1</div><div class="s">需重新提交</div></div>
+            <div class="bstat" style="background:#fff7ed;border-color:#fed7aa"><b style="color:#c2410c">待补材料</b><div class="v num" style="color:#9a3412">¥2,060</div><div class="s">2 笔</div></div>
+          </div>
+          <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary);margin:18px 0 10px">提案 · 一行，约 52px</div>
+          <div class="ledger-line">
+            <div class="seg"><span class="k">本月 2026-09</span><span class="v num">¥12,340.00</span></div>
+            <span class="sep"></span>
+            <div class="seg"><span class="dot" style="background:var(--accent)"></span><span class="k">待你处理</span><span class="v num">3 笔</span></div>
+            <span class="sep"></span>
+            <div class="seg"><span class="dot" style="background:#b45309"></span><span class="k">待补</span><span class="v num">¥2,060.00</span><span class="k">· 2 笔</span></div>
+            <span class="sep"></span>
+            <div class="seg"><span class="dot" style="background:#be123c"></span><span class="k">打回</span><span class="v num">1 笔</span></div>
+          </div>
+          <p class="tagline">省下约 78px 首屏空间；颜色降到小圆点，数字升为主角。首屏能直接看到记录表格，不用先滚过一排卡片。</p>
+        </div>
+      </div>
+
+      <div class="pr">
+        <span class="idx">02</span>
+        <h4>颜色只表示"需要你动手"，不再表示"这是什么"</h4>
+        <p>现在 teal 同时是"待提交（你要动手）"和"已提交（不是你的活了）"，用户建不起"颜色→该做什么"的映射——这是状态色最大的浪费。规则改成：<strong>青色只给"需要你处理"的事</strong>；一旦进入等审核 / 已归档，一律降为中性灰。颜色变成一种注意力预算，而不是分类标签。</p>
+        <div class="pr-body">
+          <div class="sg-row">
+            <span class="pill c-action">待提交 · 该你动手</span>
+            <span class="pill c-warn">待补材料 · 缺料</span>
+            <span class="pill c-danger">已打回 · 要改</span>
+            <span class="pill c-neutral">已提交 · 等别人</span>
+            <span class="pill c-done">已完成 · 归档</span>
+          </div>
+          <p class="tagline">5 个状态里只有前 3 个带颜色，后 2 个是灰的。界面立刻安静，而且用户一眼就能数出"有几件事在等我"。</p>
+        </div>
+      </div>
+
+      <div class="pr">
+        <span class="idx">03</span>
+        <h4>金额是主体，不是普通数字</h4>
+        <p>报销工具里，钱就是内容本身。现在金额和项目名同字号、同字重、同颜色，靠右但比例字宽。改成：金额一律 <code>tabular-nums</code>（逐位对齐，一列数字的小数点成一条线）、字重高于相邻文字、货币符号比数字小一号、右对齐。</p>
+        <div class="pr-body">
+          <div class="sg-g2">
+            <div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">现在</div>
+              <div style="font-size:13px;line-height:22px">客户打车　¥200.00<br>办公用品　¥1,860.00<br>差旅住宿　¥3,120.00</div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">提案</div>
+              <div class="num" style="font-size:13px;line-height:22px">客户打车　<b style="font-weight:600">¥200.00</b><br>办公用品　<b style="font-weight:600">¥1,860.00</b><br>差旅住宿　<b style="font-weight:600">¥3,120.00</b></div>
+            </div>
+          </div>
+          <p class="tagline">比例字宽下 ¥1,860.00 和 ¥3,120.00 的位数对不齐；等宽后整列可以竖着扫。这是"看起来专业"最便宜的一步。</p>
+        </div>
+      </div>
+
+      <div class="pr">
+        <span class="idx">04</span>
+        <h4>状态不只靠颜色，加一个形状信号</h4>
+        <p>颜色是给"扫得快"的人用的；但色盲用户、或在强光下的手机屏，颜色会失效。补一个不依赖颜色的信号：<strong>左侧 3px 色条</strong>（表格行）或<strong>状态点</strong>（摘要行）。成本几乎为零，可访问性提升明显，而且视觉上更像"记录"而不是"标签墙"。</p>
+        <div class="pr-body">
+          <div class="panel" style="overflow:hidden">
+            <table class="t">
+              <tbody>
+                <tr><td style="border-left:3px solid var(--accent);padding-left:11px"><b>客户打车</b></td><td class="r num">¥200.00</td><td><span class="pill c-action">待提交</span></td></tr>
+                <tr><td style="border-left:3px solid #f59e0b;padding-left:11px"><b>办公用品</b></td><td class="r num">¥1,860.00</td><td><span class="pill c-warn">待补材料</span></td></tr>
+                <tr><td style="border-left:3px solid #e11d48;padding-left:11px"><b>招待餐费</b></td><td class="r num">¥680.00</td><td><span class="pill c-danger">已打回</span></td></tr>
+                <tr class="is-done"><td style="border-left:3px solid #cbd5e1;padding-left:11px"><b>差旅住宿</b></td><td class="r num">¥3,120.00</td><td><span class="pill c-done">已完成</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="pr">
+        <span class="idx">05</span>
+        <h4>一屏一个主操作，且它会变</h4>
+        <p>现在首页同时有「提交报销 / 保存待补 / 收起」＋表格里每行还有按钮，主次不分。做法：<strong>整个页面只有一个实心主按钮</strong>，其余全是次级或幽灵；并且这个主按钮会随上下文变——在录入区时是"提交报销"，收起后变成"新建报销"。用户永远知道"现在最该点哪个"。</p>
+        <div class="pr-body">
+          <div class="sg-row">
+            <span style="font-size:11.5px;color:var(--text-tertiary);width:120px">录入区展开时</span>
+            <button class="btn btn-ghost btn-xs">收起</button>
+            <button class="btn btn-secondary btn-xs">保存待补</button>
+            <button class="btn btn-primary btn-xs">提交报销</button>
+            <span style="font-size:11px;color:var(--text-tertiary)">← 唯一实心</span>
+          </div>
+          <div class="sg-row" style="margin-top:10px">
+            <span style="font-size:11.5px;color:var(--text-tertiary);width:120px">收起后</span>
+            <button class="btn btn-primary btn-xs">＋ 新建报销</button>
+            <span style="font-size:11px;color:var(--text-tertiary)">← 主操作换了位置，但仍是唯一的</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flag ok">
+        <span><strong>这 5 条里，我建议至少做 01 和 02。</strong>01 是纯粹的减法（删卡片换摘要行），零功能风险、收益立刻可见；02 是纯 token 层面的规则，改的是状态映射，也不动交互逻辑。03 只动排版，风险很低。04、05 会碰到模板结构，可以放到第二个迭代。</span>
+      </div>
+    </section>
+
+    <!-- ============ 06 配置 ============ -->
+    <section class="sg-section" id="config">
+      <div class="sg-head"><h3>06 配置片段</h3><span>你定完配色我就照着写</span></div>
+
+      <div class="sg-card">
+        <h4>tailwind.config.js · theme.extend</h4>
+<pre class="code"><span class="c">// 语义命名。页面里不再直接写 teal-700 / orange-500。</span>
+colors: {
+  accent:  { DEFAULT: <span class="s">"#0f766e"</span>, hover: <span class="s">"#115e59"</span>, subtle: <span class="s">"#f0fdfa"</span>, border: <span class="s">"#99f6e4"</span> },
+  surface: { DEFAULT: <span class="s">"#ffffff"</span>, canvas: <span class="s">"#f8faf9"</span>, subtle: <span class="s">"#f8fafc"</span>, muted: <span class="s">"#f1f5f9"</span> },
+  hairline: <span class="s">"#e2e8f0"</span>,
+  strong:   <span class="s">"#cbd5e1"</span>,
+  state: {
+    neutral: { bg: <span class="s">"#f1f5f9"</span>, bd: <span class="s">"#e2e8f0"</span>, tx: <span class="s">"#475569"</span> },
+    action:  { bg: <span class="s">"#f0fdfa"</span>, bd: <span class="s">"#99f6e4"</span>, tx: <span class="s">"#0f766e"</span> },  <span class="c">// 跟 accent 走</span>
+    warn:    { bg: <span class="s">"#fffbeb"</span>, bd: <span class="s">"#fde68a"</span>, tx: <span class="s">"#b45309"</span> },
+    danger:  { bg: <span class="s">"#fff1f2"</span>, bd: <span class="s">"#fecdd3"</span>, tx: <span class="s">"#be123c"</span> },
+    done:    { bg: <span class="s">"#f8fafc"</span>, bd: <span class="s">"#e2e8f0"</span>, tx: <span class="s">"#64748b"</span> }
+  }
+},
+borderRadius: { sm: <span class="s">"6px"</span>, control: <span class="s">"8px"</span>, panel: <span class="s">"14px"</span> },
+boxShadow: {
+  flat:    <span class="s">"0 0 0 1px rgba(15,23,42,.04)"</span>,
+  raised:  <span class="s">"0 1px 2px rgba(15,23,42,.04), 0 4px 12px -2px rgba(15,23,42,.06)"</span>,
+  overlay: <span class="s">"0 8px 16px -4px rgba(15,23,42,.10), 0 24px 48px -12px rgba(15,23,42,.18)"</span>
+},
+height: { <span class="s">"control-xs"</span>: <span class="s">"28px"</span>, <span class="s">"control-sm"</span>: <span class="s">"32px"</span>, <span class="s">"control-lg"</span>: <span class="s">"36px"</span> },
+
+<span class="c">// ↓ 新增：动效 token 化</span>
+transitionDuration: { <span class="s">"1"</span>: <span class="s">"120ms"</span>, <span class="s">"2"</span>: <span class="s">"200ms"</span>, <span class="s">"3"</span>: <span class="s">"320ms"</span>, <span class="s">"4"</span>: <span class="s">"520ms"</span> },
+transitionTimingFunction: {
+  standard: <span class="s">"cubic-bezier(.2,0,0,1)"</span>,
+  exit:     <span class="s">"cubic-bezier(.4,0,1,1)"</span>,
+  emphasis: <span class="s">"cubic-bezier(.34,1.36,.64,1)"</span>
+},
+keyframes: {
+  <span class="s">"fade-up"</span>: { from: { opacity: <span class="n">0</span>, transform: <span class="s">"translateY(6px)"</span> }, to: { opacity: <span class="n">1</span>, transform: <span class="s">"none"</span> } },
+  <span class="s">"scale-in"</span>: { from: { opacity: <span class="n">0</span>, transform: <span class="s">"scale(.97)"</span> }, to: { opacity: <span class="n">1</span>, transform: <span class="s">"none"</span> } },
+  <span class="s">"row-reveal"</span>: { from: { backgroundColor: <span class="s">"transparent"</span> }, to: { backgroundColor: <span class="s">"rgb(240 253 250)"</span> } },
+  <span class="s">"dot-pulse"</span>: { <span class="s">"0%,100%"</span>: { opacity: <span class="s">".35"</span> }, <span class="s">"50%"</span>: { opacity: <span class="s">"1"</span> } }
+},
+animation: {
+  <span class="s">"fade-up"</span>:    <span class="s">"fade-up 200ms cubic-bezier(.2,0,0,1) both"</span>,
+  <span class="s">"scale-in"</span>:   <span class="s">"scale-in 320ms cubic-bezier(.2,0,0,1) both"</span>,
+  <span class="s">"row-reveal"</span>: <span class="s">"row-reveal 200ms cubic-bezier(.2,0,0,1) both"</span>,
+  <span class="s">"dot-pulse"</span>:  <span class="s">"dot-pulse 1.6s cubic-bezier(.2,0,0,1) infinite"</span>
+}</pre>
+      </div>
+
+      <div class="sg-card">
+        <h4>style.css · 收窄的控件层</h4>
+<pre class="code">@layer components {
+  <span class="c">/* 统一容器：一个宽度、一个节奏 */</span>
+  .page       { @apply mx-auto w-full max-w-[88rem] space-y-6; }
+  .page-title { @apply text-[22px] font-semibold leading-7 text-slate-900; }
+
+  <span class="c">/* 按钮：默认 32px，不再 40px */</span>
+  .btn-base { @apply inline-flex items-center justify-center gap-1.5 rounded-control
+              px-3.5 text-[13px] font-medium leading-none border border-transparent
+              transition duration-1 ease-standard
+              focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+              focus-visible:outline-accent disabled:bg-surface-muted disabled:text-slate-400; }
+  .btn-primary   { @apply btn-base h-control-sm bg-accent text-white
+                   hover:bg-accent-hover hover:shadow-raised active:translate-y-px; }
+  .btn-secondary { @apply btn-base h-control-sm border-strong bg-white text-slate-700
+                   hover:bg-surface-subtle; }
+  .btn-ghost     { @apply btn-base h-control-sm text-slate-600 hover:bg-surface-muted; }
+  .btn-xs        { @apply h-control-xs px-2.5 text-xs; }   <span class="c">/* 表格行内 */</span>
+  .btn-lg        { @apply h-control-lg px-4.5 text-sm; }   <span class="c">/* 仅登录页 */</span>
+
+  <span class="c">/* 两种输入，各有其职，规则写在注释里 */</span>
+  <span class="c">/* field：有标签 / 有校验 / 常规表单 —— 用这个 */</span>
+  .field        { @apply h-control-sm ... focus:ring-[3px] focus:ring-accent/20; }
+  <span class="c">/* field-inline：与旁边 2-3 个输入读成一句话，且只在首页快捷录入 */</span>
+  .field-inline { @apply h-[34px] border-0 border-b border-strong bg-transparent ...; }
+
+  .panel       { @apply rounded-panel border border-hairline bg-white shadow-raised; }
+  .pill        { @apply inline-flex h-[22px] items-center rounded-full px-2 text-xs font-medium; }
+  .chip        { @apply inline-flex h-[22px] items-center gap-1 rounded-sm border border-hairline
+                 bg-surface-subtle px-1.5 text-xs font-medium text-slate-600; }
+  .num         { font-variant-numeric: tabular-nums; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}</pre>
+      </div>
+
+      <div class="flag">
+        <span><strong>等你三个选择，然后我就开始改。</strong>① 配色选哪套（我推荐石墨，次选青瓷）；② 按钮默认高度接受 32px 吗（可改 34）；③ 下划线录入行保留为 <code>field-inline</code> 显式变体，还是删掉统一成标准框？其余 token 与动效建议按本节执行，第 5 节的 01、02 我建议一并做。</span>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+const root = document.documentElement;
+
+/* 配色切换 */
+document.querySelectorAll('[data-set-palette]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    root.dataset.palette = btn.dataset.setPalette;
+    document.querySelectorAll('[data-set-palette]').forEach(function (b) {
+      b.classList.toggle('is-on', b === btn);
+    });
+  });
+});
+
+/* 动效开关 */
+document.getElementById('motion-toggle').addEventListener('change', function (e) {
+  root.dataset.motion = e.target.checked ? 'off' : 'on';
+});
+
+/* 重放动画 */
+function play(id, cls) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+}
+
+/* 行状态循环 */
+var rowStates = [
+  { row: 'warn', pill: 'c-warn', text: '待补材料' },
+  { row: 'action', pill: 'c-action', text: '待提交' },
+  { row: 'done', pill: 'c-done', text: '已完成' }
+];
+var rowIdx = 0;
+function cycleRow() {
+  rowIdx = (rowIdx + 1) % rowStates.length;
+  var s = rowStates[rowIdx];
+  document.getElementById('d-row').className = 'mo-row ' + s.row;
+  var pill = document.getElementById('d-row-pill');
+  pill.className = 'st pill ' + s.pill;
+  pill.textContent = s.text;
+}
+
+/* 金额计数 */
+var amount = 12340;
+function fmt(n) {
+  return '¥' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function bump() {
+  var from = amount;
+  amount += Math.floor(200 + Math.random() * 4000);
+  var el = document.getElementById('d-amt');
+  var t0 = performance.now(), dur = 520;
+  function step(t) {
+    var p = Math.min(1, (t - t0) / dur);
+    var eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmt(Math.round(from + (amount - from) * eased));
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/* 进度条 */
+var railTimer = null;
+function runRail() {
+  var rail = document.getElementById('d-rail');
+  var label = document.getElementById('d-rail-label');
+  if (railTimer) { clearInterval(railTimer); railTimer = null; }
+  var p = 12;
+  rail.style.width = p + '%';
+  label.textContent = '识别中…';
+  railTimer = setInterval(function () {
+    p += 8 + Math.random() * 14;
+    if (p >= 100) {
+      p = 100;
+      clearInterval(railTimer);
+      railTimer = null;
+      label.textContent = '识别完成 · 2 张发票';
+    }
+    rail.style.width = p + '%';
+  }, 180);
+}
+</script>
+</body>
+</html>

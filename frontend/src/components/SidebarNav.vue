@@ -46,11 +46,19 @@ function isActive(key: ViewKey): boolean {
 </script>
 
 <template>
-  <aside class="border-b border-slate-200 bg-white lg:min-h-screen lg:w-60 lg:border-b-0 lg:border-r">
-    <div class="flex h-16 items-center border-b border-slate-200 px-5">
-      <div>
-        <div class="text-base font-semibold tracking-normal text-ink">JetBao</div>
-        <div class="text-xs text-slate-500">内部报销整理</div>
+  <aside class="border-b border-hairline bg-white lg:min-h-screen lg:w-60 lg:border-b-0 lg:border-r">
+    <div class="flex h-16 items-center border-b border-hairline px-5">
+      <div class="flex items-center gap-2.5">
+        <span
+          class="grid h-8 w-8 shrink-0 place-items-center rounded-control bg-accent text-[11px] font-semibold text-white"
+          aria-hidden="true"
+        >
+          JB
+        </span>
+        <span class="min-w-0">
+          <span class="block text-sm font-semibold tracking-normal text-slate-900">JetBao</span>
+          <span class="block text-xs text-slate-500">内部报销整理</span>
+        </span>
       </div>
     </div>
 

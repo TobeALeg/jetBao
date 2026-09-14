@@ -80,11 +80,11 @@ const isPdfPreview = () =>
       class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4"
       @click.self="emit('close')"
     >
-      <div class="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+      <div class="animate-scale-in relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-panel bg-white shadow-overlay">
+        <div class="flex items-center justify-between border-b border-hairline px-4 py-3">
           <p class="truncate pr-4 text-sm font-medium text-slate-800">{{ attachment.original_filename }}</p>
           <button
-            class="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+            class="inline-flex h-8 w-8 items-center justify-center rounded-control text-slate-500 transition duration-1 ease-standard hover:bg-surface-mute hover:text-slate-800"
             type="button"
             @click="emit('close')"
           >
@@ -92,8 +92,8 @@ const isPdfPreview = () =>
           </button>
         </div>
 
-        <div class="flex min-h-[240px] flex-1 items-center justify-center overflow-auto bg-slate-100 p-4">
-          <Loader2 v-if="loading" class="h-8 w-8 animate-spin text-teal-700" />
+        <div class="flex min-h-[240px] flex-1 items-center justify-center overflow-auto bg-surface-mute p-4">
+          <Loader2 v-if="loading" class="h-8 w-8 animate-spin text-accent-ink" />
           <div v-else-if="failed" class="text-center text-sm text-slate-500">
             <FileText class="mx-auto mb-2 h-10 w-10 text-slate-400" />
             预览加载失败
@@ -107,7 +107,7 @@ const isPdfPreview = () =>
           <iframe
             v-else-if="isPdfPreview() && previewUrl"
             :src="previewUrl"
-            class="h-[75vh] w-full rounded-md border border-slate-200 bg-white"
+            class="h-[75vh] w-full rounded-control border border-hairline bg-white"
             title="PDF 预览"
           />
           <div v-else class="text-center text-sm text-slate-500">

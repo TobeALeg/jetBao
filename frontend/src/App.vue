@@ -115,7 +115,7 @@ watch(
 </script>
 
 <template>
-  <div v-if="loadingSession" class="grid min-h-screen place-items-center bg-stone-50 text-sm text-slate-500">
+  <div v-if="loadingSession" class="grid min-h-screen place-items-center bg-surface-canvas text-sm text-slate-500">
     正在进入系统...
   </div>
 
