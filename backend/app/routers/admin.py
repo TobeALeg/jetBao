@@ -3,18 +3,18 @@ from __future__ import annotations
 import secrets
 import sqlite3
 from io import BytesIO
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from openpyxl import Workbook
 
 from app.company_entities import is_allowed_company_entity, normalize_company_entity
 from app.dependencies import require_admin
 from app.expense_month_filter import expense_period_label
 from app.routers.auth import SsoDirectoryError
-from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExpenseBulkApproveResponse, ExpenseRejectRequest, ExpenseResponse, ExpenseReviewDetailResponse, ExportPreview, LedgerRow
+from app.schemas import AdminUserCreateRequest, AdminUserResponse, AdminUserUpdateRequest, ExpenseBulkApproveResponse, ExpenseRejectRequest, ExpenseResponse, ExpenseReviewDetailResponse, ExportPackagePreparation, ExportPreview, LedgerRow
 from app.security import hash_password
+from app.services.export_downloads import ExportFileStore, iterate_file_range, parse_byte_range
 from app.services.export_package import build_export_package
 from app.services.ledger import build_ledger_query, load_ledger_duplicate_sources, serialize_ledger_row
 
@@ -89,17 +89,20 @@ def export_preview(
     company_entity: str | None = None,
     admin=Depends(require_admin),
 ) -> ExportPreview:
-    query, params = build_ledger_query(
-        month=month,
-        year=year,
-        month_part=month_part,
-        company_entity=company_entity,
-        employee_id=None,
-        category=None,
-        is_substitute=None,
-        has_duplicate=None,
-        record_status="matched",
-    )
+    exportable_queries = [
+        build_ledger_query(
+            month=month,
+            year=year,
+            month_part=month_part,
+            company_entity=company_entity,
+            employee_id=None,
+            category=None,
+            is_substitute=None,
+            has_duplicate=None,
+            record_status=record_status,
+        )
+        for record_status in ("matched", "reviewed")
+    ]
     pending_query, pending_params = build_ledger_query(
         month=month,
         year=year,
@@ -112,7 +115,11 @@ def export_preview(
         record_status="pending",
     )
     with request.app.state.db.connect() as connection:
-        rows = connection.execute(query, params).fetchall()
+        rows = [
+            row
+            for query, params in exportable_queries
+            for row in connection.execute(query, params).fetchall()
+        ]
         pending_rows = connection.execute(pending_query, pending_params).fetchall()
     employee_count = len({row["employee_name"] for row in rows})
     total_amount = round(sum(float(row["actual_amount"]) for row in rows), 2)
@@ -200,23 +207,71 @@ def export_excel(
     )
 
 
-@router.get("/export-package.zip")
-def export_package(
+def _export_file_store(request: Request) -> ExportFileStore:
+    return ExportFileStore(request.app.state.settings.data_dir / "temporary-exports")
+
+
+@router.post("/export-packages", response_model=ExportPackagePreparation)
+def prepare_export_package(
     request: Request,
     month: str | None = None,
     year: str | None = None,
     month_part: str | None = None,
     company_entity: str | None = None,
     admin=Depends(require_admin),
-) -> StreamingResponse:
+) -> ExportPackagePreparation:
     with request.app.state.db.connect() as connection:
         output, filename = build_export_package(connection, month, company_entity, year=year, month_part=month_part)
-    encoded_filename = quote(filename)
+    prepared = _export_file_store(request).save(output)
+    return ExportPackagePreparation(export_id=prepared.export_id, filename=filename, size=prepared.size)
+
+
+@router.get("/export-packages/{export_id}")
+def download_export_package(
+    export_id: str,
+    request: Request,
+    admin=Depends(require_admin),
+) -> StreamingResponse:
+    path = _export_file_store(request).resolve(export_id)
+    if path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="导出文件不存在或已过期")
+
+    file_size = path.stat().st_size
+    try:
+        byte_range = parse_byte_range(request.headers.get("range"), file_size)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            detail=str(error),
+            headers={"Content-Range": f"bytes */{file_size}"},
+        ) from error
+
+    start, end = byte_range or (0, file_size - 1)
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(end - start + 1),
+        "Cache-Control": "private, no-store",
+    }
+    response_status = status.HTTP_200_OK
+    if byte_range is not None:
+        response_status = status.HTTP_206_PARTIAL_CONTENT
+        headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
     return StreamingResponse(
-        output,
+        iterate_file_range(path, start, end),
+        status_code=response_status,
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"},
+        headers=headers,
     )
+
+
+@router.delete("/export-packages/{export_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_export_package(
+    export_id: str,
+    request: Request,
+    admin=Depends(require_admin),
+) -> Response:
+    _export_file_store(request).delete(export_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _serialize_user(row, *, identity_name: str | None = None) -> AdminUserResponse:

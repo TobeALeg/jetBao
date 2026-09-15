@@ -258,6 +258,12 @@ class ExportPreview(BaseModel):
     pending_count: int
 
 
+class ExportPackagePreparation(BaseModel):
+    export_id: str
+    filename: str
+    size: int
+
+
 # ── Legacy aliases (keep for migration transition) ──────────
 
 DraftExpenseCreateRequest = ExpenseCreateRequest

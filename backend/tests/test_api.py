@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import stat
 import sys
 import zipfile
 from io import BytesIO
@@ -652,6 +653,12 @@ def test_admin_can_filter_ledger_and_preview_export(tmp_path, monkeypatch):
         "pending_count": 1,
     }
 
+    approved = client.post(f"/api/admin/expenses/{create['id']}/approve", headers=admin)
+    assert approved.status_code == 200
+    reviewed_preview = client.get("/api/admin/export/preview?month=2026-05", headers=admin)
+    assert reviewed_preview.status_code == 200
+    assert reviewed_preview.json() == preview.json()
+
     export = client.get("/api/admin/export.xlsx?month=2026-05", headers=admin)
     assert export.status_code == 200
     assert export.headers["content-type"].startswith(
@@ -756,11 +763,46 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
     ouyang_submit = client.post(f"/api/expenses/{ouyang_draft.json()['id']}/submit", headers=ouyang)
     assert ouyang_submit.status_code == 200
 
-    package = client.get("/api/admin/export-package.zip?month=2026-05", headers=admin)
-    assert package.status_code == 200
-    assert package.headers["content-type"].startswith("application/zip")
+    preparation = client.post("/api/admin/export-packages?month=2026-05", headers=admin)
+    assert preparation.status_code == 200
+    metadata = preparation.json()
+    assert metadata["filename"] == "山途远智-2026年5月-报销明细.zip"
+    assert metadata["size"] > 0
 
-    archive = zipfile.ZipFile(BytesIO(package.content))
+    export_id = metadata["export_id"]
+    export_directory = tmp_path / "data" / "temporary-exports"
+    export_path = export_directory / f"{export_id}.zip"
+    assert stat.S_IMODE(export_directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE(export_path.stat().st_mode) == 0o600
+    unauthorized = client.get(f"/api/admin/export-packages/{export_id}")
+    assert unauthorized.status_code == 401
+    invalid_range = client.get(
+        f"/api/admin/export-packages/{export_id}",
+        headers={**admin, "Range": f"bytes={metadata['size']}-"},
+    )
+    assert invalid_range.status_code == 416
+    assert invalid_range.headers["content-range"] == f"bytes */{metadata['size']}"
+
+    package = client.get(f"/api/admin/export-packages/{export_id}", headers={**admin, "Range": "bytes=0-99"})
+    assert package.status_code == 206
+    assert package.headers["content-type"].startswith("application/zip")
+    assert package.headers["accept-ranges"] == "bytes"
+    assert package.headers["content-range"] == f"bytes 0-99/{metadata['size']}"
+    assert len(package.content) == 100
+
+    part_size = (metadata["size"] + 3) // 4
+    parts = []
+    for start in range(0, metadata["size"], part_size):
+        end = min(metadata["size"] - 1, start + part_size - 1)
+        response = client.get(
+            f"/api/admin/export-packages/{export_id}",
+            headers={**admin, "Range": f"bytes={start}-{end}"},
+        )
+        assert response.status_code == 206
+        parts.append(response.content)
+
+    archive = zipfile.ZipFile(BytesIO(b"".join(parts)))
+    assert all(info.compress_type == zipfile.ZIP_DEFLATED for info in archive.infolist())
     names = archive.namelist()
     assert "5月报销明细.xlsx" in names
     assert any(name.startswith("山途远智5月报销/艾丹迪05月报销/差旅交通/") for name in names)
@@ -783,6 +825,11 @@ def test_admin_can_export_detail_package_with_workbook_and_files(tmp_path, monke
     assert overview["E5"].value == 2
     assert overview["G4"].value == "发票张数"
     assert overview["G5"].value == 2
+
+    deleted = client.delete(f"/api/admin/export-packages/{export_id}", headers=admin)
+    assert deleted.status_code == 204
+    expired = client.get(f"/api/admin/export-packages/{export_id}", headers=admin)
+    assert expired.status_code == 404
     assert [overview.cell(row=7, column=column).value for column in range(1, 8)] == [
         "公司主体",
         "人员数",
