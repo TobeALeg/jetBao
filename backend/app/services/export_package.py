@@ -5,11 +5,9 @@ import re
 import sqlite3
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
@@ -21,7 +19,6 @@ from app.expense_month_filter import apply_expense_month_filter, expense_period_
 
 INVALID_PATH_CHARS = re.compile(r'[\\/:*?"<>|\r\n]+')
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic"}
-BUSINESS_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 @dataclass(frozen=True)
@@ -80,8 +77,7 @@ def build_export_package(
                 written_files.add(document.package_path)
 
     output.seek(0)
-    current_month = datetime.now(BUSINESS_TIMEZONE).month
-    return output, f"山途远智{current_month}月报销明细.zip"
+    return output, f"山途远智-{download_period_label(month, year, month_part)}-报销明细.zip"
 
 
 def build_export_workbook(
@@ -213,6 +209,25 @@ def export_period_label(
     if re.fullmatch(r"\d{4}-\d{2}", period):
         return f"{int(period[-2:])}月"
     return period
+
+
+def download_period_label(
+    month: str | None,
+    year: str | None = None,
+    month_part: str | None = None,
+) -> str:
+    normalized_month = normalize_month(month)
+    normalized_year = normalize_year(year)
+    normalized_month_part = normalize_month_part(month_part)
+    if normalized_month:
+        return f"{normalized_month[:4]}年{int(normalized_month[-2:])}月"
+    if normalized_year and normalized_month_part:
+        return f"{normalized_year}年{int(normalized_month_part)}月"
+    if normalized_year:
+        return f"{normalized_year}年"
+    if normalized_month_part:
+        return f"历年{int(normalized_month_part)}月"
+    return "全部历史"
 
 
 def folder_month_label(

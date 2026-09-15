@@ -352,31 +352,126 @@ export async function downloadExport(filters: Record<string, string>, periodLabe
   URL.revokeObjectURL(url);
 }
 
-export async function downloadExportPackage(filters: Record<string, string>): Promise<void> {
+export interface ExportDownloadProgress {
+  receivedBytes: number;
+  totalBytes: number;
+}
+
+interface ExportPackagePreparation {
+  export_id: string;
+  filename: string;
+  size: number;
+}
+
+const EXPORT_PART_COUNT = 4;
+const MULTIPART_DOWNLOAD_MIN_BYTES = 1024 * 1024;
+
+function exportAuthHeaders(extraHeaders?: HeadersInit): Headers {
+  const headers = new Headers(extraHeaders);
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return headers;
+}
+
+async function downloadExportPart(
+  exportId: string,
+  start: number,
+  end: number,
+  onBytes: (byteCount: number) => void
+): Promise<ArrayBuffer> {
+  const response = await fetch(`${API_BASE}/admin/export-packages/${exportId}`, {
+    headers: exportAuthHeaders({ Range: `bytes=${start}-${end}` }),
+    credentials: "same-origin"
+  });
+  if (response.status !== 206) {
+    throw new ApiError("服务器未返回分段导出文件", response.status);
+  }
+
+  const expectedSize = end - start + 1;
+  const output = new Uint8Array(expectedSize);
+  let offset = 0;
+  if (response.body) {
+    const reader = response.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      output.set(value, offset);
+      offset += value.byteLength;
+      onBytes(value.byteLength);
+    }
+  } else {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    output.set(bytes);
+    offset = bytes.byteLength;
+    onBytes(bytes.byteLength);
+  }
+  if (offset !== expectedSize) {
+    throw new Error("导出文件下载不完整，请重试");
+  }
+  return output.buffer;
+}
+
+export async function downloadExportPackage(
+  filters: Record<string, string>,
+  onProgress?: (progress: ExportDownloadProgress) => void
+): Promise<string> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value) params.set(key, value);
   });
-  const token = getToken();
-  const response = await fetch(`${API_BASE}/admin/export-package.zip?${params.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    credentials: "same-origin"
-  });
-  if (!response.ok) {
-    throw new ApiError("导出失败", response.status);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 120_000);
+  let preparation: ExportPackagePreparation;
+  try {
+    const response = await fetch(`${API_BASE}/admin/export-packages?${params.toString()}`, {
+      method: "POST",
+      headers: exportAuthHeaders(),
+      credentials: "same-origin",
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new ApiError("导出准备失败", response.status);
+    }
+    preparation = await response.json() as ExportPackagePreparation;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("导出准备超过 2 分钟，请缩小导出范围后重试");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  const blob = await response.blob();
-  const disposition = response.headers.get("Content-Disposition") || "";
-  const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-  const plainMatch = disposition.match(/filename="?([^"]+)"?/i);
-  const serverName = utfMatch?.[1] ? decodeURIComponent(utfMatch[1]) : plainMatch?.[1];
+
+  const partCount = preparation.size >= MULTIPART_DOWNLOAD_MIN_BYTES ? EXPORT_PART_COUNT : 1;
+  const partSize = Math.ceil(preparation.size / partCount);
+  let receivedBytes = 0;
+  const reportBytes = (byteCount: number) => {
+    receivedBytes += byteCount;
+    onProgress?.({ receivedBytes, totalBytes: preparation.size });
+  };
+  const parts = await Promise.all(
+    Array.from({ length: partCount }, (_, index) => {
+      const start = index * partSize;
+      const end = Math.min(preparation.size - 1, start + partSize - 1);
+      return downloadExportPart(preparation.export_id, start, end, reportBytes);
+    })
+  );
+  const blob = new Blob(parts, { type: "application/zip" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  const currentMonth = new Date().getMonth() + 1;
-  link.download = serverName || `山途远智${currentMonth}月报销明细.zip`;
+  link.download = preparation.filename;
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  // Safari may not start the save operation until after the click task returns.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  void fetch(`${API_BASE}/admin/export-packages/${preparation.export_id}`, {
+    method: "DELETE",
+    headers: exportAuthHeaders(),
+    credentials: "same-origin"
+  });
+  return preparation.filename;
 }
 
 export async function listUsers(): Promise<AdminUser[]> {

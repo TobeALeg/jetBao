@@ -2,17 +2,17 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { CheckCheck, ChevronRight, Download, Eye, Search } from "lucide-vue-next";
 import AdminExpenseReviewModal from "../components/AdminExpenseReviewModal.vue";
+import ExportPackageModal from "../components/ExportPackageModal.vue";
 import {
   approveExpense,
   approveAllExpenses,
-  downloadExportPackage,
   listLedger,
   listOwnLedger,
   listUsers,
   rejectExpense,
   unreviewExpense,
 } from "../services/api";
-import { formatCurrency, formatDate } from "../utils/format";
+import { currentReimbursementMonth, formatCurrency, formatDate } from "../utils/format";
 import type { LedgerRow, User } from "../types";
 
 const props = defineProps<{
@@ -40,7 +40,7 @@ const success = ref("");
 
 const reviewRow = ref<LedgerRow | null>(null);
 const reviewOpen = ref(false);
-const exporting = ref(false);
+const exportOpen = ref(false);
 const approvingAll = ref(false);
 const latestSearchId = ref(0);
 const appliedQueryParams = ref<Record<string, string> | null>(null);
@@ -112,6 +112,14 @@ function formatMonthLabel(month: string): string {
 
 const isAdmin = computed(() => props.user.role === "admin");
 const reviewableCount = computed(() => rows.value.filter((row) => row.status === "matched").length);
+const defaultExportMonth = computed(() => {
+  if (filterYear.value && filterMonthPart.value) return `${filterYear.value}-${filterMonthPart.value}`;
+  const latestExportableMonth = rows.value
+    .filter((row) => row.status === "matched" || row.status === "reviewed")
+    .map((row) => row.expense_month)
+    .sort((left, right) => right.localeCompare(left))[0];
+  return latestExportableMonth || currentReimbursementMonth();
+});
 const resultsAreCurrent = computed(
   () => appliedQueryParams.value !== null && queryKey(appliedQueryParams.value) === queryKey(ledgerQueryParams.value)
 );
@@ -281,30 +289,14 @@ async function handleReviewReject(row: LedgerRow) {
   await handleReject(row);
 }
 
-async function handleExport() {
-  if (exporting.value) return;
-  exporting.value = true;
+function openExport() {
   error.value = "";
   success.value = "";
-  try {
-    const params: Record<string, string> = {};
-    if (filterYear.value && filterMonthPart.value) {
-      params.month = `${filterYear.value}-${filterMonthPart.value}`;
-    } else if (filterYear.value) {
-      params.year = filterYear.value;
-    } else if (filterMonthPart.value) {
-      params.month_part = filterMonthPart.value;
-    }
-    if (filters.value.company_entity) {
-      params.company_entity = filters.value.company_entity;
-    }
-    await downloadExportPackage(params);
-    success.value = "导出成功：包含四页 Excel 与按公司/人员/报销类别整理的发票压缩包";
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : "导出失败";
-  } finally {
-    exporting.value = false;
-  }
+  exportOpen.value = true;
+}
+
+function handleExportComplete(filename: string) {
+  success.value = `下载已开始：${filename}`;
 }
 
 onMounted(async () => {
@@ -335,11 +327,10 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
         </button>
         <button
           class="secondary-button shrink-0"
-          :disabled="exporting"
           type="button"
-          @click="handleExport"
+          @click="openExport"
         >
-          <Download class="h-4 w-4" /> {{ exporting ? "导出中..." : "导出" }}
+          <Download class="h-4 w-4" /> 导出报销包
         </button>
       </div>
     </div>
@@ -556,6 +547,13 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
       @close="closeReview"
       @approve="handleReviewApprove"
       @reject="handleReviewReject"
+    />
+    <ExportPackageModal
+      :open="exportOpen"
+      :initial-month="defaultExportMonth"
+      :initial-company-entity="filters.company_entity"
+      @close="exportOpen = false"
+      @complete="handleExportComplete"
     />
   </div>
 </template>
