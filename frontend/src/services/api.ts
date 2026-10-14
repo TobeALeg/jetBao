@@ -117,6 +117,12 @@ export async function listExpenses(): Promise<Expense[]> {
   return request("/expenses");
 }
 
+export async function getOwnExpenseDetail(id: number): Promise<Expense> {
+  const expense = (await listExpenses()).find((item) => item.id === id);
+  if (!expense) throw new ApiError("报销记录不存在", 404);
+  return expense;
+}
+
 export async function listInvoicePool(): Promise<InvoicePoolItem[]> {
   return request("/invoice-pool");
 }

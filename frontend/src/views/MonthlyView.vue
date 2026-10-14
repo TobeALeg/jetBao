@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { CheckCircle2, FilePlus2, ImagePlus, Loader2, Plus } from "lucide-vue-next";
+import ExpenseDetailModal from "../components/ExpenseDetailModal.vue";
 import AttachmentPreviewModal from "../components/AttachmentPreviewModal.vue";
 import UploadAttachmentTile from "../components/UploadAttachmentTile.vue";
 import { buyerMatchStatus, isDifferentAllowedBuyer } from "../constants/companyEntities";
@@ -54,6 +55,7 @@ const invoiceInput = ref<HTMLInputElement | null>(null);
 const evidenceDragging = ref(false);
 const invoiceDragging = ref(false);
 const previewAttachment = ref<Attachment | null>(null);
+const previewExpense = ref<Expense | null>(null);
 const removingAttachmentId = ref<number | null>(null);
 
 const expenseForm = ref<{ project_name: string; actual_amount: string; category: string }>({
@@ -144,12 +146,9 @@ const displayInvoiceItems = computed(() => {
     };
   });
 });
-const canRemoveInvoice = computed(() => {
-  if (stagedInvoices.value.length) return true;
-  const expense = targetExpense.value;
-  return Boolean(expense?.allocation_count && expense.status === "pending");
-});
-const invoiceUploadLocked = computed(() => saving.value);
+const canRemoveMaterial = computed(() => targetExpenseId.value === null || isEditingPendingExpense.value);
+const materialBusy = computed(() => saving.value || removingAttachmentId.value !== null);
+const invoiceUploadLocked = computed(() => materialBusy.value);
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
@@ -259,6 +258,7 @@ function setSubstitute(value: boolean) {
 }
 
 function startNewExpense() {
+  if (materialBusy.value) return;
   resetComposer();
   isComposerOpen.value = true;
   error.value = "";
@@ -278,7 +278,12 @@ function syncComposerWithLoadedExpenses() {
 }
 
 function openExistingExpense(expense: Expense) {
-  if (expense.status !== "pending") return;
+  if (expense.status !== "pending" || saving.value || removingAttachmentId.value !== null) return;
+  if (targetExpenseId.value === expense.id) {
+    isComposerOpen.value = true;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
   targetExpenseId.value = expense.id;
   isComposerOpen.value = true;
   isNewSubstitute.value = expense.is_substitute;
@@ -418,17 +423,20 @@ function closeAttachmentPreview() {
 }
 
 async function removeEvidenceAttachment(attachment: Attachment) {
+  if (materialBusy.value || !canRemoveMaterial.value) return;
   if (!window.confirm("确认删除这份佐证材料？")) return;
   removingAttachmentId.value = attachment.id;
   error.value = "";
   try {
     if (targetExpenseId.value && !isStagedEvidence(attachment)) {
-      await deleteExpenseAttachment(targetExpenseId.value, attachment.id);
-      await load();
+      replaceExpense(await deleteExpenseAttachment(targetExpenseId.value, attachment.id));
+      emit("refreshed");
     } else {
       await deleteAttachment(attachment.id);
       evidenceAttachments.value = evidenceAttachments.value.filter((item) => item.id !== attachment.id);
     }
+    if (previewAttachment.value?.id === attachment.id) closeAttachmentPreview();
+    if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url);
     success.value = "佐证材料已删除";
   } catch (err) {
     error.value = err instanceof Error ? err.message : "佐证材料删除失败";
@@ -438,6 +446,7 @@ async function removeEvidenceAttachment(attachment: Attachment) {
 }
 
 async function removeInvoiceAttachment(attachment: Attachment) {
+  if (materialBusy.value || !canRemoveMaterial.value) return;
   const invoiceCount = invoiceReferencesOf([attachment]).length;
   const message = invoiceCount > 1
     ? `这份文件识别出 ${invoiceCount} 张发票，确认全部删除？`
@@ -447,12 +456,14 @@ async function removeInvoiceAttachment(attachment: Attachment) {
   error.value = "";
   try {
     if (targetExpenseId.value && targetExpense.value?.allocation_count) {
-      await deleteExpenseInvoiceAttachment(targetExpenseId.value, attachment.id);
-      await load();
+      replaceExpense(await deleteExpenseInvoiceAttachment(targetExpenseId.value, attachment.id));
+      emit("refreshed");
     } else {
       await deleteAttachment(attachment.id);
       stagedInvoices.value = stagedInvoices.value.filter((item) => item.id !== attachment.id);
     }
+    if (previewAttachment.value?.id === attachment.id) closeAttachmentPreview();
+    if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url);
     success.value = "发票已删除";
   } catch (err) {
     error.value = err instanceof Error ? err.message : "发票删除失败";
@@ -462,7 +473,7 @@ async function removeInvoiceAttachment(attachment: Attachment) {
 }
 
 async function handleEvidenceFiles(files: File[]) {
-  if (!files.length) return;
+  if (!files.length || materialBusy.value) return;
   saving.value = true;
   error.value = "";
   try {
@@ -673,14 +684,14 @@ async function withdraw(record: Expense) {
 }
 
 async function deleteRecord(record: Expense) {
-  if (!window.confirm("确认删除此笔待补材料报销？此操作不可恢复。")) return;
+  if (!window.confirm("确认删除此笔报销？此操作不可恢复。")) return;
   saving.value = true;
   error.value = "";
   try {
     await deleteExpense(record.id);
     expenses.value = expenses.value.filter((expense) => expense.id !== record.id);
     if (targetExpenseId.value === record.id) resetComposer();
-    success.value = "待补材料报销已删除";
+    success.value = "报销已删除";
     emit("refreshed");
   } catch (err) {
     error.value = err instanceof Error ? err.message : "删除失败";
@@ -841,14 +852,15 @@ function handleVisibilityChange() {
                 v-for="attachment in displayEvidenceAttachments"
                 :key="attachment.id"
                 :attachment="attachment"
-                :removable="isEditingPendingExpense && !saving"
+                :removable="canRemoveMaterial"
+                :disabled="materialBusy"
                 :removing="removingAttachmentId === attachment.id"
                 @preview="openAttachmentPreview"
                 @remove="removeEvidenceAttachment"
               />
               <button
                 class="flex aspect-square flex-col items-center justify-center rounded-control border border-dashed border-line-strong bg-white text-slate-500 transition duration-2 ease-standard hover:border-accent hover:bg-accent-soft hover:text-accent-ink disabled:cursor-not-allowed disabled:opacity-60"
-                :disabled="saving"
+                :disabled="materialBusy"
                 type="button"
                 @click="evidenceInput?.click()"
               >
@@ -860,7 +872,7 @@ function handleVisibilityChange() {
             <button
               v-else
               class="flex min-h-28 w-full flex-col items-center justify-center px-4 text-center transition duration-2 ease-standard hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="saving"
+              :disabled="materialBusy"
               type="button"
               @click="evidenceInput?.click()"
             >
@@ -886,7 +898,8 @@ function handleVisibilityChange() {
                 v-for="attachment in displayInvoiceAttachments"
                 :key="attachment.id"
                 :attachment="attachment"
-                :removable="canRemoveInvoice && !saving"
+                :removable="canRemoveMaterial"
+                :disabled="materialBusy"
                 :removing="removingAttachmentId === attachment.id"
                 @preview="openAttachmentPreview"
                 @remove="removeInvoiceAttachment"
@@ -946,15 +959,17 @@ function handleVisibilityChange() {
         </p>
         <div class="flex flex-wrap items-center gap-2">
           <button class="secondary-button btn-xs" type="button" @click="isComposerOpen = false">收起</button>
-          <button class="secondary-button btn-xs" :disabled="saving" type="button" @click="saveDraft">{{ isEditingPendingExpense ? "保存修改" : "保存待补" }}</button>
+          <button class="secondary-button btn-xs" :disabled="materialBusy" type="button" @click="saveDraft">{{ isEditingPendingExpense ? "保存修改" : "保存待补" }}</button>
           <!-- 本屏唯一的实心主操作 -->
-          <button class="primary-button is-anchor btn-xs" :disabled="saving || (isEditingPendingExpense ? !canSubmitExisting : !canSubmitNew)" type="button" @click="submitCurrent">
+          <button class="primary-button is-anchor btn-xs" :disabled="materialBusy || (isEditingPendingExpense ? !canSubmitExisting : !canSubmitNew)" type="button" @click="submitCurrent">
             <Loader2 v-if="saving" class="h-3.5 w-3.5 animate-spin" />
             <CheckCircle2 v-else class="h-3.5 w-3.5" /> 提交报销
           </button>
         </div>
       </div>
     </section>
+
+    <ExpenseDetailModal mode="view" :row="previewExpense" :open="Boolean(previewExpense)" @close="previewExpense = null" />
 
     <section>
       <div class="mb-3 flex items-center justify-between"><h2 class="section-title">本月记录</h2><span class="text-xs text-slate-500">{{ currentMonthExpenses.length }} 笔</span></div>
@@ -980,27 +995,47 @@ function handleVisibilityChange() {
             class="divide-y divide-hairline"
             :class="tableSectionClass(section.key)"
           >
-            <tr v-for="record in section.records" :key="record.id" class="h-14 transition duration-2 ease-standard" :class="tableRowClass(section.key, record)">
+            <tr
+              v-for="record in section.records"
+              :key="record.id"
+              class="h-14 transition duration-2 ease-standard"
+              :class="[
+                tableRowClass(section.key, record),
+                { 'cursor-pointer': record.status === 'pending' && !saving && removingAttachmentId === null },
+                { 'bg-accent-soft': isComposerOpen && targetExpenseId === record.id },
+              ]"
+              @click="openExistingExpense(record)"
+            >
               <td class="border-l-[3px] px-4 py-2" :class="recordStateBarClass(record)">
                 <span class="status-pill" :class="recordStateClass(record)">{{ recordStateLabel(record) }}</span>
                 <div v-if="record.reject_reason" class="mt-1 max-w-40 truncate text-[11px] text-state-danger-ink" :title="record.reject_reason">
                   {{ record.reject_reason }}
                 </div>
               </td>
-              <td class="px-4 py-2 font-medium" :class="section.key === 'approved' ? 'text-slate-500' : 'text-slate-900'">{{ record.project_name || record.category }}</td>
+              <td class="px-4 py-2 font-medium" :class="section.key === 'approved' ? 'text-slate-500' : 'text-slate-900'">
+                <button
+                  v-if="record.status === 'pending'"
+                  class="text-left hover:text-accent-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed"
+                  :disabled="saving || removingAttachmentId !== null"
+                  :aria-label="`编辑报销：${record.project_name || record.category}`"
+                  type="button"
+                  @click.stop="openExistingExpense(record)"
+                >{{ record.project_name || record.category }}</button>
+                <template v-else>{{ record.project_name || record.category }}</template>
+              </td>
               <td class="px-4 py-2 text-slate-600">{{ record.category }}</td>
               <td class="num px-4 py-2 text-right font-medium" :class="section.key === 'approved' ? 'text-slate-500' : 'text-slate-900'">{{ formatCurrency(record.actual_amount) }}</td>
               <td class="px-4 py-2"><span :class="record.is_substitute ? 'text-slate-900' : 'text-slate-500'">{{ record.is_substitute ? "是" : "否" }}</span></td>
               <td class="px-4 py-2"><span :class="record.attachments.length ? 'text-slate-700' : 'text-state-warn-ink'">{{ record.attachments.length ? `${record.attachments.length} 份` : "未上传" }}</span></td>
               <td class="px-4 py-2"><span :class="record.allocation_count ? 'text-slate-700' : 'text-state-warn-ink'">{{ record.allocation_count ? "已上传" : "未上传" }}</span></td>
-              <td class="px-4 py-2 text-right">
+              <td class="px-4 py-2 text-right" @click.stop>
                 <div class="flex items-center justify-end gap-1.5">
                   <template v-if="recordState(record) === 'rejected'">
-                    <button class="secondary-button btn-xs" type="button" @click="openExistingExpense(record)">修改</button>
+                    <button class="secondary-button btn-xs" :disabled="saving || removingAttachmentId !== null" type="button" @click="openExistingExpense(record)">修改</button>
                     <button
                       v-if="record.allocation_count && record.remaining_amount <= 0"
                       class="primary-button btn-xs"
-                      :disabled="saving"
+                      :disabled="materialBusy"
                       type="button"
                       @click="submitRecord(record)"
                     >
@@ -1008,12 +1043,12 @@ function handleVisibilityChange() {
                     </button>
                   </template>
                   <template v-else-if="recordState(record) === 'missing_material'">
-                    <button class="secondary-button btn-xs" type="button" @click="openExistingExpense(record)">补材料</button>
-                    <button class="secondary-button btn-xs text-rose-700" type="button" :disabled="saving" @click="deleteRecord(record)">删除</button>
+                    <button class="secondary-button btn-xs" :disabled="saving || removingAttachmentId !== null" type="button" @click="openExistingExpense(record)">补材料</button>
                   </template>
-                  <button v-else-if="recordState(record) === 'ready'" class="primary-button btn-xs" :disabled="saving" type="button" @click="submitRecord(record)">提交报销</button>
-                  <button v-else-if="recordState(record) === 'submitted'" class="secondary-button btn-xs" :disabled="saving" type="button" @click="withdraw(record)">撤回</button>
-                  <span v-else class="text-xs text-slate-400">—</span>
+                  <button v-else-if="recordState(record) === 'ready'" class="primary-button btn-xs" :disabled="materialBusy" type="button" @click="submitRecord(record)">提交报销</button>
+                  <button v-else-if="recordState(record) === 'submitted'" class="secondary-button btn-xs" :disabled="materialBusy" type="button" @click="withdraw(record)">撤回</button>
+                  <button v-if="record.status === 'matched' || record.status === 'reviewed'" class="secondary-button btn-xs" type="button" @click="previewExpense = record">查看</button>
+                  <button v-if="record.status === 'pending'" class="secondary-button btn-xs text-rose-700" type="button" :disabled="saving || removingAttachmentId !== null" @click="deleteRecord(record)">删除</button>
                 </div>
               </td>
             </tr>

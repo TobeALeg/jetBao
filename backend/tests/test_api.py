@@ -2329,3 +2329,31 @@ def test_admin_bulk_approve_respects_ledger_filters_permissions_and_is_idempoten
     assert final_rows[june_matched_id]["reviewed_at"]
     assert final_rows[pending_id]["status"] == "pending"
     assert final_rows[reviewed_id]["reviewed_at"] == "2026-05-31 12:00:00"
+
+
+def test_employee_can_withdraw_then_delete_own_expense_only(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    with client.app.state.db.connect() as connection:
+        connection.execute("UPDATE users SET role = 'employee' WHERE username = 'Dandi'")
+    owner = auth_headers(client, "Dandi", "dandi123")
+    other = auth_headers(client, "Ouyang", "ouyang123")
+    expense = create_invoice_backed_expense(client, owner, user_id=2, invoice_number="WITHDRAW-DELETE")
+    expense_id = expense["id"]
+    assert client.post(f"/api/expenses/{expense_id}/submit", headers=owner).status_code == 200
+    assert client.delete(f"/api/expenses/{expense_id}", headers=owner).status_code == 400
+    assert client.post(f"/api/expenses/{expense_id}/withdraw", headers=other).status_code == 404
+    assert client.delete(f"/api/expenses/{expense_id}", headers=other).status_code == 404
+
+    with client.app.state.db.connect() as connection:
+        connection.execute("UPDATE expenses SET status = 'reviewed' WHERE id = ?", (expense_id,))
+    assert client.post(f"/api/expenses/{expense_id}/withdraw", headers=owner).status_code == 400
+    assert client.delete(f"/api/expenses/{expense_id}", headers=owner).status_code == 400
+    with client.app.state.db.connect() as connection:
+        connection.execute("UPDATE expenses SET status = 'matched' WHERE id = ?", (expense_id,))
+
+    withdrawn = client.post(f"/api/expenses/{expense_id}/withdraw", headers=owner)
+    assert withdrawn.status_code == 200
+    assert withdrawn.json()["status"] == "pending"
+    assert withdrawn.json()["allocation_count"] == expense["allocation_count"]
+    assert client.delete(f"/api/expenses/{expense_id}", headers=owner).status_code == 200
+    assert all(row["id"] != expense_id for row in client.get("/api/ledger", headers=owner).json())

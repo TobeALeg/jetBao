@@ -3,21 +3,23 @@ import { ref, watch } from "vue";
 import { Loader2, X } from "lucide-vue-next";
 import AttachmentPreviewModal from "./AttachmentPreviewModal.vue";
 import UploadAttachmentTile from "./UploadAttachmentTile.vue";
-import { getAdminExpenseReview } from "../services/api";
+import { getAdminExpenseReview, getOwnExpenseDetail } from "../services/api";
 import { formatCurrency, formatDate } from "../utils/format";
 import type { Attachment, ExpenseReviewDetail, LedgerRow } from "../types";
 
 const props = defineProps<{
-  row: LedgerRow | null;
+  row: Pick<LedgerRow, "id" | "employee_name" | "project_name" | "note" | "actual_amount" | "status"> | null;
+  mode: "view" | "review";
   open: boolean;
 }>();
 
 const emit = defineEmits<{
   close: [];
-  approve: [row: LedgerRow];
-  reject: [row: LedgerRow];
+  approve: [];
+  reject: [];
 }>();
 
+let requestId = 0;
 const loading = ref(false);
 const error = ref("");
 const detail = ref<ExpenseReviewDetail | null>(null);
@@ -31,23 +33,26 @@ function statusLabel(status: string): string {
 }
 
 async function loadDetail(expenseId: number) {
+  const currentRequest = ++requestId;
   loading.value = true;
   error.value = "";
   detail.value = null;
   try {
-    detail.value = await getAdminExpenseReview(expenseId);
+    const result = await (props.mode === "review" ? getAdminExpenseReview(expenseId) : getOwnExpenseDetail(expenseId));
+    if (currentRequest === requestId) detail.value = result;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "加载失败";
+    if (currentRequest === requestId) error.value = err instanceof Error ? err.message : "加载失败";
   } finally {
-    loading.value = false;
+    if (currentRequest === requestId) loading.value = false;
   }
 }
 
 watch(
-  () => [props.open, props.row?.id] as const,
+  () => [props.open, props.row?.id, props.mode] as const,
   ([open, expenseId]) => {
     previewAttachment.value = null;
     if (!open || !expenseId) {
+      requestId += 1;
       detail.value = null;
       error.value = "";
       return;
@@ -77,7 +82,7 @@ function closePreview() {
       <div class="animate-scale-in relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-panel bg-white shadow-overlay">
         <div class="flex items-start justify-between border-b border-hairline px-5 py-4">
           <div class="min-w-0 pr-4">
-            <h2 class="text-base font-semibold text-slate-900">审核预览</h2>
+            <h2 class="text-base font-semibold text-slate-900">{{ mode === "review" ? "审核预览" : "报销详情" }}</h2>
             <p class="mt-1 truncate text-sm text-slate-600">
               {{ row.employee_name }} · {{ row.project_name || row.note || "未命名" }} · {{ formatCurrency(row.actual_amount) }}
             </p>
@@ -148,14 +153,14 @@ function closePreview() {
         </div>
 
         <div
-          v-if="detail && row.status === 'matched'"
+          v-if="mode === 'review' && detail && row.status === 'matched'"
           class="flex items-center justify-end gap-2 border-t border-hairline px-5 py-4"
         >
           <button class="secondary-button h-9" type="button" @click="emit('close')">关闭</button>
-          <button class="secondary-button text-state-warn-ink hover:border-state-warn-line hover:bg-state-warn-soft" type="button" @click="emit('reject', row)">
+          <button class="secondary-button text-state-warn-ink hover:border-state-warn-line hover:bg-state-warn-soft" type="button" @click="emit('reject')">
             打回
           </button>
-          <button class="primary-button h-9" type="button" @click="emit('approve', row)">
+          <button class="primary-button h-9" type="button" @click="emit('approve')">
             通过
           </button>
         </div>
