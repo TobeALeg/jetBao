@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { CheckCheck, ChevronRight, Download, Eye, Search } from "lucide-vue-next";
-import AdminExpenseReviewModal from "../components/AdminExpenseReviewModal.vue";
+import ExpenseDetailModal from "../components/ExpenseDetailModal.vue";
 import ExportPackageModal from "../components/ExportPackageModal.vue";
 import {
+  deleteExpense,
+  withdrawExpense,
   approveExpense,
   approveAllExpenses,
   listLedger,
@@ -42,6 +44,7 @@ const reviewRow = ref<LedgerRow | null>(null);
 const reviewOpen = ref(false);
 const exportOpen = ref(false);
 const approvingAll = ref(false);
+const changingOwnRecord = ref(false);
 const latestSearchId = ref(0);
 const appliedQueryParams = ref<Record<string, string> | null>(null);
 
@@ -151,6 +154,35 @@ async function search() {
     error.value = err instanceof Error ? err.message : "加载失败";
   } finally {
     if (searchId === latestSearchId.value) loading.value = false;
+  }
+}
+
+async function changeOwnRecord(row: LedgerRow) {
+  if (isAdmin.value || changingOwnRecord.value || loading.value || row.status === "reviewed") return;
+  const deleting = row.status === "pending";
+  if (deleting && !window.confirm("确认删除此笔报销？此操作不可恢复。")) return;
+  changingOwnRecord.value = true;
+  error.value = "";
+  success.value = "";
+  try {
+    if (deleting) {
+      await deleteExpense(row.id);
+      rows.value = rows.value.filter((item) => item.id !== row.id);
+    } else {
+      const updated = await withdrawExpense(row.id);
+      const appliedStatus = appliedQueryParams.value?.status;
+      rows.value = rows.value.flatMap((item) => {
+        if (item.id !== row.id) return [item];
+        if (appliedStatus && appliedStatus !== updated.status) return [];
+        return [{ ...item, status: updated.status, reject_reason: updated.reject_reason, reviewed_at: updated.reviewed_at }];
+      });
+    }
+    emit("expensesChanged");
+    success.value = deleting ? "报销已删除" : "报销已撤回";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "操作失败";
+  } finally {
+    changingOwnRecord.value = false;
   }
 }
 
@@ -447,7 +479,7 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
                       <col class="w-[4.5rem]" />
                       <col class="w-[5.5rem]" />
                       <col class="w-[8rem]" />
-                      <col v-if="isAdmin" class="w-[13.5rem]" />
+                      <col :class="isAdmin ? 'w-[13.5rem]' : 'w-[10rem]'" />
                     </colgroup>
                     <thead class="bg-surface-soft text-xs font-medium text-slate-500">
                       <tr>
@@ -459,7 +491,7 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
                         <th class="px-4 py-3">替票</th>
                         <th class="px-4 py-3">状态</th>
                         <th class="px-4 py-3">时间</th>
-                        <th v-if="isAdmin" class="px-4 py-3">操作</th>
+                        <th class="px-4 py-3">操作</th>
                       </tr>
                     </thead>
                     <tbody class="divide-y divide-hairline bg-white">
@@ -530,6 +562,20 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
                             </button>
                           </div>
                         </td>
+                        <td v-else class="whitespace-nowrap px-4 py-3">
+                          <button v-if="row.status === 'matched' || row.status === 'reviewed'" class="secondary-button btn-xs mr-1.5" type="button" @click="openReview(row)">
+                            <Eye class="h-3.5 w-3.5" /> 查看
+                          </button>
+                          <button
+                            v-if="row.status === 'pending' || row.status === 'matched'"
+                            class="secondary-button btn-xs"
+                            :class="{ 'text-rose-700': row.status === 'pending' }"
+                            :disabled="changingOwnRecord || loading"
+                            type="button"
+                            @click="changeOwnRecord(row)"
+                          >{{ row.status === 'pending' ? "删除" : "撤回" }}</button>
+
+                        </td>
                       </tr>
                     </tbody>
                   </table>
@@ -541,12 +587,13 @@ watch([filterYear, filterMonthPart, () => filters.value.company_entity, () => fi
       </div>
     </div>
 
-    <AdminExpenseReviewModal
+    <ExpenseDetailModal
+      :mode="isAdmin ? 'review' : 'view'"
       :open="reviewOpen"
       :row="reviewRow"
       @close="closeReview"
-      @approve="handleReviewApprove"
-      @reject="handleReviewReject"
+      @approve="reviewRow && handleReviewApprove(reviewRow)"
+      @reject="reviewRow && handleReviewReject(reviewRow)"
     />
     <ExportPackageModal
       :open="exportOpen"

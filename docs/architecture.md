@@ -27,6 +27,12 @@
 
 ### data flow
 
+- 上传卡片统一通过 `UploadAttachmentTile` 的右上角叉号删除材料；暂存材料调用附件删除接口，已关联材料调用报销附件/发票删除接口并用返回记录原位更新。上传和删除互斥，失败不移除本地卡片。
+
+- `ExpenseDetailModal.vue` 共用材料详情展示，显式区分员工只读查看与管理员审核；员工使用已有 `GET /api/expenses` 的本人数据定位记录，管理员使用审核详情接口。附件原件继续经过附件内容接口的权限校验；弹窗切换记录时忽略过期请求结果。
+
+- `MonthlyView.vue` 以 `pending` 作为列表进入编辑区的统一条件，不依赖发票是否已齐；通过 `targetExpenseId` 回填字段并展示已关联附件，复用现有更新、上传和关联接口。行内提交、撤回、删除操作阻止点击冒泡，避免误开编辑区；异步保存、上传及附件删除期间不允许切换目标记录。
+
 1. 待处理报销：前端提交项目名称、金额、月份、类别，后端写入 `expenses.status = pending`；员工可通过 `PATCH /api/expenses/{expense_id}` 完整更新自己的 `pending` 记录，后端拒绝跨用户或非 `pending` 修改。
 2. 交易记录附件：用户在我的报销页或报销整理工作栏上传付款截图、订单截图等图片，前端先调用 `/api/attachments/batch`，再通过 `/api/expenses/{expense_id}/attachments` 写入 `expense_attachments`。
    员工新建报销工作区使用该接口上传多张佐证，并通过 `/api/attachments/invoices/batch` 上传和 OCR 多份发票文件；发票 OCR 结果按 `attachment_id + invoice_item_index` 展开为独立发票条目，再通过 `/api/expense-allocations/batch` 一次绑定到同一待处理花费。
@@ -49,6 +55,8 @@
 19. 统一登录：JetBao 生成随机 `state` 后跳转 MentiHub；MentiHub 验证企业邮箱并返回一次性授权码；JetBao 后端兑换 `subject/email/display_name`，优先按 `subject` 关联本地成员，首次登录才回退预登记邮箱，并同步身份邮箱和姓名；只有本地已授权且启用的员工能建立 12 小时 host-only HttpOnly Cookie 会话。
 20. 登录迁移：`AUTH_MODE=hybrid` 时保留旧用户名密码入口供管理员补齐企业邮箱；全部员工绑定后切换 `AUTH_MODE=sso`，密码登录和修改密码接口随即关闭。
 21. 返回主站：前端构建参数 `VITE_HOME_URL`（Compose/流水线对应 `FRONTEND_HOME_URL`）控制侧栏“回到 dashboard”地址；使用普通导航且不调用退出接口，因此 JetBao 与 MentiHub 各自的 host-only 会话均保留。
+
+- 普通用户的 `HistoryView.vue` 操作列复用本人报销删除和撤回接口，就地更新列表并通知其他视图刷新；撤回后按已应用的状态筛选决定保留或移除该行。管理员历史列表继续使用审核操作。
 
 ### status flow
 

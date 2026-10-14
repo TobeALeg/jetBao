@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Trash2 } from "lucide-vue-next";
+import { Loader2, X } from "lucide-vue-next";
 import AttachmentThumb from "./AttachmentThumb.vue";
 import { looksLikePdf } from "../utils/attachmentUtils";
 import type { Attachment } from "../types";
@@ -8,6 +8,7 @@ defineProps<{
   attachment: Attachment;
   removable?: boolean;
   removing?: boolean;
+  disabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -34,15 +35,15 @@ const emit = defineEmits<{
 
     <button
       v-if="removable"
-      class="absolute right-2 top-2 z-20 inline-flex h-8 min-w-8 items-center justify-center gap-1 rounded-full border rounded-full border border-state-danger-line bg-state-danger-ink px-2 text-white shadow-raised transition duration-1 ease-standard hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
-      :disabled="removing"
+      class="absolute right-2 top-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-state-danger-line bg-state-danger-ink text-white shadow-raised transition duration-1 ease-standard hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
+      :disabled="disabled || removing"
       type="button"
-      aria-label="删除"
+      :aria-label="`删除 ${attachment.original_filename}`"
+      title="删除"
       @click.stop="emit('remove', attachment)"
     >
       <Loader2 v-if="removing" class="h-3.5 w-3.5 animate-spin" />
-      <Trash2 v-else class="h-3.5 w-3.5" />
-      <span class="text-[11px] font-medium leading-none">删除</span>
+      <X v-else class="h-4 w-4" />
     </button>
 
     <p class="truncate border-t border-hairline px-2 py-1.5 text-[11px] text-slate-600" :title="attachment.original_filename">
