@@ -33,7 +33,7 @@ export function currentMonth(): string {
 export function currentReimbursementMonth(): string {
   const now = new Date();
   const reimbursementDate = new Date(now);
-  if (now.getDate() < 15) {
+  if (now.getDate() <= 15) {
     reimbursementDate.setMonth(reimbursementDate.getMonth() - 1);
   }
   const month = String(reimbursementDate.getMonth() + 1).padStart(2, "0");
