@@ -7,7 +7,6 @@ defineProps<{
   user: User;
   currentView: ViewKey;
   draftCount: number;
-  pendingOcrCount: number;
 }>();
 
 defineEmits<{
@@ -24,7 +23,6 @@ defineEmits<{
         :user="user"
         :current-view="currentView"
         :draft-count="draftCount"
-        :pending-ocr-count="pendingOcrCount"
         @change-view="$emit('change-view', $event)"
       />
       <div class="flex min-w-0 flex-1 flex-col">

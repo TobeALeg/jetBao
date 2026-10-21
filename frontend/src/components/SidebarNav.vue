@@ -9,7 +9,6 @@ const props = defineProps<{
   user: User;
   currentView: ViewKey;
   draftCount: number;
-  pendingOcrCount: number;
 }>();
 
 defineEmits<{
@@ -34,7 +33,7 @@ const visibleNavItems = computed(() =>
 );
 
 function badgeFor(key: ViewKey): number {
-  if (key === "monthly") return props.draftCount + props.pendingOcrCount;
+  if (key === "monthly") return props.draftCount;
   return 0;
 }
 

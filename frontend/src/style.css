@@ -140,6 +140,11 @@ textarea {
     @apply border-transparent bg-accent text-white hover:bg-accent-hover;
   }
 
+  .primary-button.is-anchor:disabled {
+    @apply border-hairline bg-surface-mute text-slate-400 shadow-none;
+    transform: none;
+  }
+
   .secondary-button {
     @apply btn-base h-control-sm border-line-strong bg-white text-slate-700 hover:border-slate-400 hover:bg-surface-soft;
   }
