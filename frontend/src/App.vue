@@ -9,6 +9,8 @@ import HistoryView from "./views/HistoryView.vue";
 import AdminUsersView from "./views/AdminUsersView.vue";
 import { clearToken, getMe, listExpenses, logout, markGuideSeen } from "./services/api";
 import type { Expense, User, ViewKey } from "./types";
+import { currentReimbursementMonth } from "./utils/format";
+import { isExpenseInMonthlyWorkspace } from "./utils/expenses";
 
 const ADMIN_ONLY_VIEWS: ViewKey[] = ["admin-users"];
 
@@ -20,13 +22,10 @@ const allExpenses = ref<Expense[]>([]);
 const showGuideWelcome = ref(false);
 const showGuideDrawer = ref(false);
 
-const draftCount = computed(() => allExpenses.value.filter((e) => e.status === "pending").length);
-const pendingOcrCount = computed(() =>
-  allExpenses.value.reduce(
-    (sum, e) => sum + e.attachments.filter((f) => f.ocr_status !== "success" && f.ocr_status !== "skipped").length,
-    0
-  )
-);
+const month = currentReimbursementMonth();
+const draftCount = computed(() => allExpenses.value.filter(
+  (expense) => isExpenseInMonthlyWorkspace(expense, month) && expense.status === "pending"
+).length);
 
 async function loadExpenses() {
   if (!user.value) return;
@@ -126,7 +125,6 @@ watch(
     :user="user"
     :current-view="currentView"
     :draft-count="draftCount"
-    :pending-ocr-count="pendingOcrCount"
     @change-view="handleChangeView"
     @logout="handleLogout"
     @open-guide="showGuideDrawer = true"

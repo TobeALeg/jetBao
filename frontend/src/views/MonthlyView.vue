@@ -23,6 +23,7 @@ import {
   withdrawExpense,
 } from "../services/api";
 import { currentReimbursementMonth, formatCurrency } from "../utils/format";
+import { isExpenseInMonthlyWorkspace } from "../utils/expenses";
 import type { Attachment, Expense, ExpenseCreatePayload, PendingExpenseUpdatePayload } from "../types";
 
 const props = defineProps<{
@@ -64,28 +65,28 @@ const expenseForm = ref<{ project_name: string; actual_amount: string; category:
   category: DEFAULT_EXPENSE_CATEGORY,
 });
 
-const currentMonthExpenses = computed(() => expenses.value.filter((expense) => expense.expense_month === month));
-const submittedRecords = computed(() => currentMonthExpenses.value.filter((expense) => expense.status === "matched"));
-const approvedRecords = computed(() => currentMonthExpenses.value.filter((expense) => expense.status === "reviewed"));
+const visibleExpenses = computed(() => expenses.value.filter((expense) => isExpenseInMonthlyWorkspace(expense, month)));
+const submittedRecords = computed(() => visibleExpenses.value.filter((expense) => expense.status === "matched"));
+const approvedRecords = computed(() => visibleExpenses.value.filter((expense) => expense.status === "reviewed"));
 const submittedTotal = computed(() => submittedRecords.value.reduce((sum, record) => sum + Number(record.actual_amount), 0));
 const approvedTotal = computed(() => approvedRecords.value.reduce((sum, record) => sum + Number(record.actual_amount), 0));
-const materialMissingCount = computed(() => currentMonthExpenses.value.filter((record) => record.status === "pending" && !record.reject_reason && (!record.allocation_count || !record.attachments.length)).length);
-const materialMissingTotal = computed(() => currentMonthExpenses.value
+const materialMissingCount = computed(() => visibleExpenses.value.filter((record) => record.status === "pending" && !record.reject_reason && (!record.allocation_count || !record.attachments.length)).length);
+const materialMissingTotal = computed(() => visibleExpenses.value
   .filter((record) => record.status === "pending" && !record.reject_reason && (!record.allocation_count || !record.attachments.length))
   .reduce((sum, record) => sum + Number(record.actual_amount), 0));
-const rejectedCount = computed(() => currentMonthExpenses.value.filter((record) => record.status === "pending" && Boolean(record.reject_reason)).length);
-const readyCount = computed(() => currentMonthExpenses.value.filter((record) => recordState(record) === "ready").length);
+const rejectedCount = computed(() => visibleExpenses.value.filter((record) => record.status === "pending" && Boolean(record.reject_reason)).length);
+const readyCount = computed(() => visibleExpenses.value.filter((record) => recordState(record) === "ready").length);
 function activeRecordPriority(expense: Expense): number {
   if (expense.reject_reason) return 0;
   if (recordState(expense) === "ready") return 1;
   return 2;
 }
 const tableSections = computed<TableSection[]>(() => {
-  const active = currentMonthExpenses.value
+  const active = visibleExpenses.value
     .filter((record) => record.status === "pending")
     .sort((a, b) => activeRecordPriority(a) - activeRecordPriority(b));
-  const submitted = currentMonthExpenses.value.filter((record) => record.status === "matched");
-  const approved = currentMonthExpenses.value.filter((record) => record.status === "reviewed");
+  const submitted = visibleExpenses.value.filter((record) => record.status === "matched");
+  const approved = visibleExpenses.value.filter((record) => record.status === "reviewed");
   return [
     ...(active.length ? [{ key: "active" as const, records: active }] : []),
     ...(submitted.length ? [{ key: "submitted" as const, records: submitted }] : []),
@@ -113,9 +114,11 @@ const invoiceAmountExceedsExpense = computed(() => {
   return actualAmount > 0 && linkedInvoiceAmount.value > actualAmount;
 });
 const showSubstituteReason = computed(() => isNewSubstitute.value || invoiceAmountExceedsExpense.value);
-const canSubmitNew = computed(() => Boolean(stagedInvoiceItems.value.length && Number(expenseForm.value.actual_amount) > 0 && stagedInvoiceTotal.value >= Number(expenseForm.value.actual_amount)));
+const hasProjectName = computed(() => Boolean(expenseForm.value.project_name.trim()));
+const canSubmitNew = computed(() => Boolean(hasProjectName.value && stagedInvoiceItems.value.length && Number(expenseForm.value.actual_amount) > 0 && stagedInvoiceTotal.value >= Number(expenseForm.value.actual_amount)));
 const canSubmitExisting = computed(() => Boolean(
   isEditingPendingExpense.value
+  && hasProjectName.value
   && targetExpense.value?.allocation_count
   && formActualAmount.value > 0
   && linkedInvoiceAmount.value >= formActualAmount.value
@@ -972,9 +975,9 @@ function handleVisibilityChange() {
     <ExpenseDetailModal mode="view" :row="previewExpense" :open="Boolean(previewExpense)" @close="previewExpense = null" />
 
     <section>
-      <div class="mb-3 flex items-center justify-between"><h2 class="section-title">本月记录</h2><span class="text-xs text-slate-500">{{ currentMonthExpenses.length }} 笔</span></div>
+      <div class="mb-3 flex items-center justify-between"><h2 class="section-title">本月记录与往期待办</h2><span class="text-xs text-slate-500">{{ visibleExpenses.length }} 笔</span></div>
       <div v-if="loading" class="tool-panel px-4 py-10 text-center text-sm text-slate-500">加载中...</div>
-      <div v-else-if="!currentMonthExpenses.length" class="tool-panel px-4 py-12 text-center text-sm text-slate-500">本月还没有报销记录，先新建一笔。</div>
+      <div v-else-if="!visibleExpenses.length" class="tool-panel px-4 py-12 text-center text-sm text-slate-500">暂无本月记录或往期待办，先新建一笔。</div>
       <div v-else class="tool-panel overflow-x-auto">
         <table class="min-w-[900px] w-full text-left text-[13px]">
           <thead class="border-b border-hairline bg-surface-soft text-xs font-medium text-slate-500">
@@ -1022,6 +1025,9 @@ function handleVisibilityChange() {
                   @click.stop="openExistingExpense(record)"
                 >{{ record.project_name || record.category }}</button>
                 <template v-else>{{ record.project_name || record.category }}</template>
+                <div v-if="record.expense_month < month" class="mt-1 text-[11px] font-normal text-slate-500">
+                  {{ record.expense_month }} 往期待办
+                </div>
               </td>
               <td class="px-4 py-2 text-slate-600">{{ record.category }}</td>
               <td class="num px-4 py-2 text-right font-medium" :class="section.key === 'approved' ? 'text-slate-500' : 'text-slate-900'">{{ formatCurrency(record.actual_amount) }}</td>
